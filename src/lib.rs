@@ -14,3 +14,7 @@
     unreachable_pub,
     variant_size_differences
 )]
+
+mod error;
+
+pub use self::error::{Error, Result};
