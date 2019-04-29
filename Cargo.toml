@@ -1,0 +1,27 @@
+[package]
+name = "opera"
+version = "0.0.0"
+authors = ["nuew <code@nuew.net>"]
+edition = "2018" # not sure about this, TODO
+description = "A pure-rust Opus decoding library"
+repository = "https://github.com/nuew/opera"
+readme = "README.md"
+keywords = ["ogg", "opus", "decoder", "audio", "codec"]
+categories = ["compression", "multimedia::encoding", "multimedia::audio"]
+license = "ISC"
+
+[badges]
+travis-ci = { repository = "nuew/opera", branch = "master" }
+maintenance = { status = "experimental" }
+
+[dependencies]
+byteorder = "1"
+ogg = { version = "0.7", optional = true }
+
+[dev-dependencies]
+criterion = "0.2"
+opus-sys = "0.2"
+
+[features]
+default = ["ogg"]
+ogg_async = ["ogg/async"]
