@@ -456,14 +456,17 @@ pub struct Packet<'a> {
 type DecodeFunction<'a> = fn(Config, bool, bool, &'a [u8]) -> Result<(Packet<'a>, &'a [u8])>;
 
 impl<'a> Packet<'a> {
+    /// The maximum allowable duration of a packet.
+    const DURATION_MAX: Duration = Duration::from_millis(120);
+
     /// Returns the length code of the packet and the offset to add.
     fn length_code(data: &[u8]) -> Result<(usize, usize)> {
         // RFC 6716 § 3.2.1
         match data.first() {
             Some(len @ 0..=251) => Ok((usize::from(*len), 1)),
             Some(first @ 252..=255) => {
-                let second = usize::from(*data.get(1).ok_or(MalformedPacketError::UnexpectedEof)?);
-                Ok(((second * 4) + usize::from(*first), 2))
+                let second = data.get(1).ok_or(MalformedPacketError::UnexpectedEof)?;
+                Ok(((usize::from(*second) * 4) + usize::from(*first), 2))
             }
             None => Err(MalformedPacketError::UnexpectedEof),
         }
@@ -473,7 +476,11 @@ impl<'a> Packet<'a> {
     /// self-delimiting framing.
     fn framing(framing: bool, data: &'a [u8]) -> Result<(usize, usize, &'a [u8])> {
         if framing {
-            Packet::length_code(data).map(|(len, offset)| (len, offset, &data[offset + len..]))
+            let (len, offset) = Packet::length_code(data)?;
+            let data = &data
+                .get(offset + len..)
+                .ok_or(MalformedPacketError::UnexpectedEof)?;
+            Ok((len, offset, data))
         } else {
             Ok((data.len(), 0, data))
         }
@@ -588,6 +595,8 @@ impl<'a> Packet<'a> {
                 },
                 &more_data[len1..],
             ))
+        } else if framing {
+            Err(MalformedPacketError::UnexpectedEof)
         } else {
             Err(MalformedPacketError::FrameOverflow)
         }
@@ -606,7 +615,9 @@ impl<'a> Packet<'a> {
         let frame_count = u32::from(fc.frame_count());
         if frame_count == 0 {
             return Err(MalformedPacketError::ZeroFrames);
-        } // TODO test for overlong frame
+        } else if frame_count * Duration::from(config.frame_size) > Packet::DURATION_MAX {
+            return Err(MalformedPacketError::OverlongDuration);
+        }
 
         // Handle padding
         let (padding, data) = if fc.padding() {
@@ -621,8 +632,15 @@ impl<'a> Packet<'a> {
         } else {
             Packet::decode_code_3_cbr
         };
-        func(config, stereo, framing, data, frame_count as usize)
-            .map(|(packet, more_data)| (packet, &more_data[padding..])) // skip Opus padding
+        let (packet, more_data) = func(config, stereo, framing, data, frame_count as usize)?;
+
+        // skip Opus padding
+        Ok((
+            packet,
+            &more_data
+                .get(padding..)
+                .ok_or(MalformedPacketError::UnexpectedEof)?,
+        ))
     }
 
     /// Decodes the body of a code 3 VBR packet.
@@ -649,9 +667,11 @@ impl<'a> Packet<'a> {
                     .into_iter()
                     .map(|len| {
                         let new_offset = offset + len;
-                        let frame = Frame::new(&data[offset..new_offset]);
+                        let data = &data
+                            .get(offset..new_offset)
+                            .ok_or(MalformedPacketError::UnexpectedEof)?;
                         offset = new_offset;
-                        frame
+                        Frame::new(data)
                     })
                     .collect::<Result<Vec<_>>>()?,
             },
