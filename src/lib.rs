@@ -16,6 +16,7 @@
 )]
 
 mod error;
+mod slice_ext;
 
 pub mod packet;
 

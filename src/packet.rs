@@ -1,5 +1,6 @@
 //! Decodes Opus codec packets into sequences of frames.
 
+use crate::slice_ext::{BoundsError, SliceExt};
 use std::{
     error::Error,
     fmt::{self, Debug, Display, Formatter},
@@ -402,6 +403,12 @@ impl Display for MalformedPacketError {
 
 impl Error for MalformedPacketError {}
 
+impl From<BoundsError> for MalformedPacketError {
+    fn from(from: BoundsError) -> MalformedPacketError {
+        MalformedPacketError::UnexpectedEof
+    }
+}
+
 /// A specialized Result type for Opus packet decoding.
 pub type Result<T> = std::result::Result<T, MalformedPacketError>;
 
@@ -465,7 +472,7 @@ impl<'a> Packet<'a> {
         match data.first() {
             Some(len @ 0..=251) => Ok((usize::from(*len), 1)),
             Some(first @ 252..=255) => {
-                let second = data.get(1).ok_or(MalformedPacketError::UnexpectedEof)?;
+                let second = data.get_res(1)?;
                 Ok(((usize::from(*second) * 4) + usize::from(*first), 2))
             }
             None => Err(MalformedPacketError::UnexpectedEof),
@@ -477,9 +484,7 @@ impl<'a> Packet<'a> {
     fn framing(framing: bool, data: &'a [u8]) -> Result<(usize, usize, &'a [u8])> {
         if framing {
             let (len, offset) = Packet::length_code(data)?;
-            let data = &data
-                .get(offset + len..)
-                .ok_or(MalformedPacketError::UnexpectedEof)?;
+            let data = &data.get_res(offset + len..)?;
             Ok((len, offset, data))
         } else {
             Ok((data.len(), 0, data))
@@ -519,11 +524,7 @@ impl<'a> Packet<'a> {
             Packet {
                 config,
                 stereo,
-                frames: vec![Frame::new(
-                    &data
-                        .get(offset..offset + len)
-                        .ok_or(MalformedPacketError::UnexpectedEof)?,
-                )?],
+                frames: vec![Frame::new(&data.get_res(offset..offset + len)?)?],
             },
             more_data,
         ))
@@ -552,12 +553,8 @@ impl<'a> Packet<'a> {
                 config,
                 stereo,
                 frames: vec![
-                    Frame::new(&data.get(..len).ok_or(MalformedPacketError::UnexpectedEof)?)?,
-                    Frame::new(
-                        &data
-                            .get(len..len * 2)
-                            .ok_or(MalformedPacketError::UnexpectedEof)?,
-                    )?,
+                    Frame::new(&data.get_res(..len)?)?,
+                    Frame::new(&data.get_res(len..len * 2)?)?,
                 ],
             },
             more_data,
@@ -581,16 +578,8 @@ impl<'a> Packet<'a> {
                     config,
                     stereo,
                     frames: vec![
-                        Frame::new(
-                            &data
-                                .get(..len1)
-                                .ok_or(MalformedPacketError::UnexpectedEof)?,
-                        )?,
-                        Frame::new(
-                            &data
-                                .get(len1..len1 + len2)
-                                .ok_or(MalformedPacketError::UnexpectedEof)?,
-                        )?,
+                        Frame::new(&data.get_res(..len1)?)?,
+                        Frame::new(&data.get_res(len1..len1 + len2)?)?,
                     ],
                 },
                 &more_data[len1..],
@@ -609,7 +598,7 @@ impl<'a> Packet<'a> {
         framing: bool,
         data: &'a [u8],
     ) -> Result<(Packet<'a>, &'a [u8])> {
-        let fc = FrameCount::from(*data.first().ok_or(MalformedPacketError::UnexpectedEof)?);
+        let fc = FrameCount::from(*data.first_res()?);
 
         // Handle R5 exclusions
         let frame_count = u32::from(fc.frame_count());
@@ -635,12 +624,7 @@ impl<'a> Packet<'a> {
         let (packet, more_data) = func(config, stereo, framing, data, frame_count as usize)?;
 
         // skip Opus padding
-        Ok((
-            packet,
-            &more_data
-                .get(padding..)
-                .ok_or(MalformedPacketError::UnexpectedEof)?,
-        ))
+        Ok((packet, &more_data.get_res(padding..)?))
     }
 
     /// Decodes the body of a code 3 VBR packet.
@@ -667,9 +651,7 @@ impl<'a> Packet<'a> {
                     .into_iter()
                     .map(|len| {
                         let new_offset = offset + len;
-                        let data = &data
-                            .get(offset..new_offset)
-                            .ok_or(MalformedPacketError::UnexpectedEof)?;
+                        let data = &data.get_res(offset..new_offset)?;
                         offset = new_offset;
                         Frame::new(data)
                     })
@@ -700,13 +682,7 @@ impl<'a> Packet<'a> {
                 config,
                 stereo,
                 frames: (0..frame_count)
-                    .map(|i| {
-                        Frame::new(
-                            &data
-                                .get(len * i..len * (i + 1))
-                                .ok_or(MalformedPacketError::UnexpectedEof)?,
-                        )
-                    })
+                    .map(|i| Frame::new(&data.get_res(len * i..len * (i + 1))?))
                     .collect::<Result<_>>()?,
             },
             &data[len * frame_count..],
@@ -728,7 +704,7 @@ impl<'a> Packet<'a> {
     /// The length of `data` __must__ be exactly the length of the packet; otherwise, the packet
     /// may fail to decode, or worse, end in garbage.
     pub fn new(data: &'a [u8]) -> Result<Packet<'a>> {
-        let toc = TableOfContents::from(*data.first().ok_or(MalformedPacketError::UnexpectedEof)?);
+        let toc = TableOfContents::from(*data.first_res()?);
         Packet::layout_function(toc.frames_layout())(toc.config(), toc.stereo(), false, &data[1..])
             .map(|(packet, _)| packet)
     }
@@ -739,7 +715,7 @@ impl<'a> Packet<'a> {
     ///
     /// [RFC 6716 Appendix B]: https://tools.ietf.org/html/rfc6716#appendix-B
     pub fn new_with_framing(data: &'a [u8]) -> Result<(Packet<'a>, &'a [u8])> {
-        let toc = TableOfContents::from(*data.first().ok_or(MalformedPacketError::UnexpectedEof)?);
+        let toc = TableOfContents::from(*data.first_res()?);
         Packet::layout_function(toc.frames_layout())(toc.config(), toc.stereo(), true, &data[1..])
     }
 }
