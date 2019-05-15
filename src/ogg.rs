@@ -28,7 +28,7 @@ pub enum OggOpusError {
     /// The Identificaion Header indicated that this Ogg file conforms to an unsupported version of
     /// the specification.
     UnsupportedVersion,
-    /// The specified channel layout is malformed or otherwise invalid.
+    /// The specified channel layout is malformed, unsupported, or otherwise invalid.
     InvalidChannelLayout,
 }
 
@@ -118,12 +118,23 @@ impl TryFrom<u8> for VorbisChannelLayout {
 /// The channel mapping family and channel layout for an Ogg Opus stream.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub enum ChannelMappingFamily {
-    /// RTP-style channel mapping
+    /// Mono, L/R stereo
     RTP(RtpChannelLayout),
-    /// Vorbis-style channel mapping
+    /// 1-8 channel surround
     Vorbis(VorbisChannelLayout),
-    /// Undefined channel mapping
-    Undefined {
+    /// Ambisonics as individual channels
+    AmbisonicsIndividual,
+    /// Ambisonics with demixing matrix
+    AmbisonicsDemixed,
+    /// Experimental use
+    Experimental {
+        /// The mapping family number.
+        family: u8,
+        /// The number of channels in use.
+        channels: u8,
+    },
+    /// Discrete channels
+    Discrete {
         /// The number of channels in use.
         channels: u8,
     },
@@ -138,7 +149,11 @@ impl ChannelMappingFamily {
             1 => Ok(ChannelMappingFamily::Vorbis(VorbisChannelLayout::try_from(
                 channels,
             )?)),
-            255 | _ => Ok(ChannelMappingFamily::Undefined { channels }),
+            2 => Ok(ChannelMappingFamily::AmbisonicsIndividual),
+            3 => Ok(ChannelMappingFamily::AmbisonicsDemixed),
+            family @ 240..=254 => Ok(ChannelMappingFamily::Experimental { family, channels }),
+            255 => Ok(ChannelMappingFamily::Discrete { channels }),
+            _ => Err(OggOpusError::InvalidChannelLayout),
         }
     }
 }
