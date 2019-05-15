@@ -8,8 +8,7 @@ use std::{
     error::Error,
     fmt::{self, Debug, Display, Formatter},
     io::prelude::*,
-    iter::FusedIterator,
-    num::{NonZeroU32, NonZeroU8},
+    num::NonZeroU32,
 };
 
 /// The error type returned when the Ogg Opus stream is malformed.
@@ -67,7 +66,7 @@ pub enum RtpChannelLayout {
 impl TryFrom<u8> for RtpChannelLayout {
     type Error = OggOpusError;
 
-    fn try_from(v: u8) -> ::std::result::Result<Self, Self::Error> {
+    fn try_from(v: u8) -> Result<Self> {
         match v {
             1 => Ok(RtpChannelLayout::Mono),
             2 => Ok(RtpChannelLayout::Stereo),
@@ -100,7 +99,7 @@ pub enum VorbisChannelLayout {
 impl TryFrom<u8> for VorbisChannelLayout {
     type Error = OggOpusError;
 
-    fn try_from(v: u8) -> ::std::result::Result<Self, Self::Error> {
+    fn try_from(v: u8) -> Result<Self> {
         match v {
             1 => Ok(VorbisChannelLayout::Mono),
             2 => Ok(VorbisChannelLayout::Stereo),
@@ -115,9 +114,114 @@ impl TryFrom<u8> for VorbisChannelLayout {
     }
 }
 
+/// Ambisonics channel mapping layouts.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+pub enum AmbisonicsChannelLayout {
+    /// Zeroth-order Ambisonics
+    Zero = 1,
+    /// Zeroth-order Ambisonics with non-diegetic stereo stream
+    ZeroNonDiegetic = 3,
+    /// First-order Ambisonics
+    One = 4,
+    /// First-order Ambisonics with non-diegetic stereo stream
+    OneNonDiegetic = 6,
+    /// Second-order Ambisonics
+    Two = 9,
+    /// Second-order Ambisonics with non-diegetic stereo stream
+    TwoNonDiegetic = 11,
+    /// Third-order Ambisonics
+    Three = 16,
+    /// Third-order Ambisonics with non-diegetic stereo stream
+    ThreeNonDiegetic = 18,
+    /// Fourth-order Ambisonics
+    Four = 25,
+    /// Fourth-order Ambisonics with non-diegetic stereo stream
+    FourNonDiegetic = 27,
+    /// Fifth-order Ambisonics
+    Five = 36,
+    /// Fifth-order Ambisonics with non-diegetic stereo stream
+    FiveNonDiegetic = 38,
+    /// Sixth-order Ambisonics
+    Six = 49,
+    /// Sixth-order Ambisonics with non-diegetic stereo stream
+    SixNonDiegetic = 51,
+    /// Seventh-order Ambisonics
+    Seven = 64,
+    /// Seventh-order Ambisonics with non-diegetic stereo stream
+    SevenNonDiegetic = 66,
+    /// Eighth-order Ambisonics
+    Eight = 81,
+    /// Eighth-order Ambisonics with non-diegetic stereo stream
+    EightNonDiegetic = 83,
+    /// Ninth-order Ambisonics
+    Nine = 100,
+    /// Ninth-order Ambisonics with non-diegetic stereo stream
+    NineNonDiegetic = 102,
+    /// Tenth-order Ambisonics
+    Ten = 121,
+    /// Tenth-order Ambisonics with non-diegetic stereo stream
+    TenNonDiegetic = 123,
+    /// Eleventh-order Ambisonics
+    Eleven = 144,
+    /// Eleventh-order Ambisonics with non-diegetic stereo stream
+    ElevenNonDiegetic = 146,
+    /// Twelfth-order Ambisonics
+    Twelve = 169,
+    /// Twelfth-order Ambisonics with non-diegetic stereo stream
+    TwelveNonDiegetic = 171,
+    /// Thirteenth-order Ambisonics
+    Thirteen = 196,
+    /// Thirteenth-order Ambisonics with non-diegetic stereo stream
+    ThirteenNonDiegetic = 198,
+    /// Fourteenth-order Ambisonics
+    Fourteen = 225,
+    /// Fourteenth-order Ambisonics with non-diegetic stereo stream
+    FourteenNonDiegetic = 227,
+}
+
+impl TryFrom<u8> for AmbisonicsChannelLayout {
+    type Error = OggOpusError;
+
+    fn try_from(v: u8) -> Result<Self> {
+        match v {
+            1 => Ok(AmbisonicsChannelLayout::Zero),
+            3 => Ok(AmbisonicsChannelLayout::ZeroNonDiegetic),
+            4 => Ok(AmbisonicsChannelLayout::One),
+            6 => Ok(AmbisonicsChannelLayout::OneNonDiegetic),
+            9 => Ok(AmbisonicsChannelLayout::Two),
+            11 => Ok(AmbisonicsChannelLayout::TwoNonDiegetic),
+            16 => Ok(AmbisonicsChannelLayout::Three),
+            18 => Ok(AmbisonicsChannelLayout::ThreeNonDiegetic),
+            25 => Ok(AmbisonicsChannelLayout::Four),
+            27 => Ok(AmbisonicsChannelLayout::FourNonDiegetic),
+            36 => Ok(AmbisonicsChannelLayout::Five),
+            38 => Ok(AmbisonicsChannelLayout::FiveNonDiegetic),
+            49 => Ok(AmbisonicsChannelLayout::Six),
+            51 => Ok(AmbisonicsChannelLayout::SixNonDiegetic),
+            64 => Ok(AmbisonicsChannelLayout::Seven),
+            66 => Ok(AmbisonicsChannelLayout::SevenNonDiegetic),
+            81 => Ok(AmbisonicsChannelLayout::Eight),
+            83 => Ok(AmbisonicsChannelLayout::EightNonDiegetic),
+            100 => Ok(AmbisonicsChannelLayout::Nine),
+            102 => Ok(AmbisonicsChannelLayout::NineNonDiegetic),
+            121 => Ok(AmbisonicsChannelLayout::Ten),
+            123 => Ok(AmbisonicsChannelLayout::TenNonDiegetic),
+            144 => Ok(AmbisonicsChannelLayout::Eleven),
+            146 => Ok(AmbisonicsChannelLayout::ElevenNonDiegetic),
+            169 => Ok(AmbisonicsChannelLayout::Twelve),
+            171 => Ok(AmbisonicsChannelLayout::TwelveNonDiegetic),
+            196 => Ok(AmbisonicsChannelLayout::Thirteen),
+            198 => Ok(AmbisonicsChannelLayout::ThirteenNonDiegetic),
+            225 => Ok(AmbisonicsChannelLayout::Fourteen),
+            227 => Ok(AmbisonicsChannelLayout::FourteenNonDiegetic),
+            _ => Err(OggOpusError::InvalidChannelLayout),
+        }
+    }
+}
+
 /// Channel Mapping table as defined in RFC 7845
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
-struct StandardMappingTable {
+pub struct StandardMappingTable {
     /// The number of streams encoded in each Ogg packet.
     streams: u8,
     /// The number of streams whose decoders are to be configured to produce two channels
@@ -143,11 +247,26 @@ impl StandardMappingTable {
             mapping: table.get_res(2..2 + usize::from(channels))?.to_owned(),
         })
     }
+
+    /// Returns the number of streams encoded in each Ogg packet.
+    #[inline]
+    pub fn streams(&self) -> u8 {
+        self.streams
+    }
+
+    /// Returns the number of streams whose decoders are to be configured to produce two channels
+    /// (stereo sound). Will not be larger then the return value of [`StandardMappingTable::streams`].
+    ///
+    /// [`StandardMappingTable::streams`]: #method.streams
+    #[inline]
+    pub fn coupled(&self) -> u8 {
+        self.coupled
+    }
 }
 
 /// Ambisonics channel mapping table (for mapping type 3)
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
-struct AmbisonicsMappingTable {
+pub struct AmbisonicsMappingTable {
     /// The number of streams encoded in each Ogg packet.
     streams: u8,
     /// The number of streams whose decoders are to be configured to produce two channels
@@ -179,11 +298,26 @@ impl AmbisonicsMappingTable {
                 .collect(),
         })
     }
+
+    /// Returns the number of streams encoded in each Ogg packet.
+    #[inline]
+    pub fn streams(&self) -> u8 {
+        self.streams
+    }
+
+    /// Returns the number of streams whose decoders are to be configured to produce two channels
+    /// (stereo sound). Will not be larger then the return value of [`AmbisonicsMappingTable::streams`].
+    ///
+    /// [`AmbisonicsMappingTable::streams`]: #method.streams
+    #[inline]
+    pub fn coupled(&self) -> u8 {
+        self.coupled
+    }
 }
 
 /// The channel mapping family and channel layout for an Ogg Opus stream.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
-enum ChannelMapping {
+pub enum ChannelMapping {
     /// Mono, L/R stereo
     RTP(RtpChannelLayout),
     /// 1-8 channel surround
@@ -195,15 +329,15 @@ enum ChannelMapping {
     },
     /// Ambisonics as individual channels
     AmbisonicsIndividual {
-        /// The number of channels in use.
-        channels: u8,
+        /// The channel layout.
+        layout: AmbisonicsChannelLayout,
         /// The Ogg packet channel to output channel mapping.
         mapping: StandardMappingTable,
     },
     /// Ambisonics with demixing matrix
     AmbisonicsDemixed {
-        /// The number of channels in use.
-        channels: u8,
+        /// The channel layout.
+        layout: AmbisonicsChannelLayout,
         /// The Ogg packet channel to output channel mapping.
         mapping: AmbisonicsMappingTable,
     },
@@ -225,11 +359,11 @@ impl ChannelMapping {
                 mapping: StandardMappingTable::new(channels, table)?,
             }),
             2 => Ok(ChannelMapping::AmbisonicsIndividual {
-                channels,
+                layout: AmbisonicsChannelLayout::try_from(channels)?,
                 mapping: StandardMappingTable::new(channels, table)?,
             }),
             3 => Ok(ChannelMapping::AmbisonicsDemixed {
-                channels,
+                layout: AmbisonicsChannelLayout::try_from(channels)?,
                 mapping: AmbisonicsMappingTable::new(channels, table)?,
             }),
             255 => Ok(ChannelMapping::Discrete {
@@ -241,13 +375,13 @@ impl ChannelMapping {
     }
 
     /// Returns the number of streams encoded in each Ogg packet.
-    fn streams(&self) -> u8 {
+    pub fn streams(&self) -> u8 {
         match self {
             ChannelMapping::RTP(_) => 1,
-            ChannelMapping::Vorbis { mapping, .. } => mapping.streams,
-            ChannelMapping::AmbisonicsIndividual { mapping, .. } => mapping.streams,
-            ChannelMapping::AmbisonicsDemixed { mapping, .. } => mapping.streams,
-            ChannelMapping::Discrete { mapping, .. } => mapping.streams,
+            ChannelMapping::Vorbis { mapping, .. } => mapping.streams(),
+            ChannelMapping::AmbisonicsIndividual { mapping, .. } => mapping.streams(),
+            ChannelMapping::AmbisonicsDemixed { mapping, .. } => mapping.streams(),
+            ChannelMapping::Discrete { mapping, .. } => mapping.streams(),
         }
     }
 
@@ -255,13 +389,13 @@ impl ChannelMapping {
     /// (stereo sound). Will not be larger then the return value of [`ChannelMapping::streams`].
     ///
     /// [`ChannelMapping::streams`]: #method.streams
-    fn coupled_streams(&self) -> u8 {
+    pub fn coupled_streams(&self) -> u8 {
         match self {
             ChannelMapping::RTP(layout) => *layout as u8 - 1,
-            ChannelMapping::Vorbis { mapping, .. } => mapping.coupled,
-            ChannelMapping::AmbisonicsIndividual { mapping, .. } => mapping.coupled,
-            ChannelMapping::AmbisonicsDemixed { mapping, .. } => mapping.coupled,
-            ChannelMapping::Discrete { mapping, .. } => mapping.coupled,
+            ChannelMapping::Vorbis { mapping, .. } => mapping.coupled(),
+            ChannelMapping::AmbisonicsIndividual { mapping, .. } => mapping.coupled(),
+            ChannelMapping::AmbisonicsDemixed { mapping, .. } => mapping.coupled(),
+            ChannelMapping::Discrete { mapping, .. } => mapping.coupled(),
         }
     }
 }
@@ -291,7 +425,6 @@ impl IdHeader {
     const VERSION_MAJOR_MASK: u8 = 0b1111_0000;
 
     /// Minor (compatible) version subfield mask.
-    #[allow(unused)]
     const VERSION_MINOR_MASK: u8 = 0b0000_1111;
 
     /// Create a new ID header representation from bytes.
@@ -321,9 +454,34 @@ impl IdHeader {
         }
     }
 
+    /// Returns the encapsulation specification version as (major, minor).
+    fn version(&self) -> (u8, u8) {
+        const MAJOR_SHIFT_RIGHT: u32 = IdHeader::VERSION_MAJOR_MASK.trailing_zeros();
+        (
+            (self.version & IdHeader::VERSION_MAJOR_MASK) >> MAJOR_SHIFT_RIGHT,
+            self.version & IdHeader::VERSION_MINOR_MASK,
+        )
+    }
+
+    /// Returns the output channel configuration.
+    fn channels(&self) -> &ChannelMapping {
+        &self.channels
+    }
+
+    /// Returns the number of samples (at 48 kHz) to discard when beginning playback.
+    fn pre_skip(&self) -> u16 {
+        self.pre_skip
+    }
+
     /// Returns the encoding sample rate.
     fn sample_rate(&self) -> Option<NonZeroU32> {
         self.sample_rate
+    }
+
+    /// Returns 20*log_10 of the factor by which to scale the decoder output to
+    /// receive the desired playback volume.
+    fn output_gain(&self) -> i16 {
+        self.output_gain
     }
 }
 
@@ -349,23 +507,26 @@ impl<'a> Iterator for Comments<'a> {
             let cmt_len = LE::read_u32(self.comments.get(self.pos..cmt_start)?) as usize;
 
             // bookkeeping
+            // this is located here so that on comment parse failure, calling .next() again returns
+            // the next comment
             self.pos = cmt_start + cmt_len;
             self.comments_read += 1;
 
-            // parse comment; if it's invalid utf-8, just move on to the next one.
-            let (name, value) = match from_utf8(self.comments.get(cmt_start..self.pos)?) {
-                Ok(cmt) => cmt.split_at(cmt.find('=')?),
-                Err(_) => return self.next(),
-            };
+            // parse comment
+            let cmt = from_utf8(self.comments.get(cmt_start..self.pos)?).ok()?;
+            let (name, value) = cmt.split_at(cmt.find('=')?);
 
             Some((name, &value[1..]))
         } else {
             None
         }
     }
-}
 
-impl FusedIterator for Comments<'_> {}
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        // this has a lower-bound of zero as the next comment might be malformed
+        (0, Some((self.comments_num - self.comments_read) as usize))
+    }
+}
 
 #[derive(PartialEq, Eq, Clone, Hash)]
 struct CommentHeader {
@@ -486,24 +647,52 @@ where
         })
     }
 
+    /// Returns the output channel configuration.
+    pub fn channels(&self) -> &ChannelMapping {
+        self.id_header.channels()
+    }
+
     /// Returns an iterator over user comments contained in the Vorbis comments block.
+    #[inline]
     pub fn comments(&self) -> Comments<'_> {
         self.comments.comments()
+    }
+
+    /// Returns the number of samples (at 48 kHz) to discard when beginning playback.
+    #[inline]
+    pub fn pre_skip(&self) -> u16 {
+        self.id_header.pre_skip()
     }
 
     /// Returns the sample rate of the media this file was encoded from, in Hz.
     ///
     /// Note that this is not necessarily the sample rate it will be played back at.
+    #[inline]
     pub fn sample_rate(&self) -> Option<NonZeroU32> {
         self.id_header.sample_rate()
     }
 
+    /// Returns 20*log_10 of the factor by which to scale the decoder output to
+    /// receive the desired playback volume.
+    #[inline]
+    pub fn output_gain(&self) -> i16 {
+        self.id_header.output_gain()
+    }
+
     /// Returns the encoder vendor string from the Vorbis comment block.
+    #[inline]
     pub fn vendor(&self) -> &str {
         self.comments.vendor()
     }
 
+    /// Returns the encapsulation specification version as (major, minor).
+    #[inline]
+    pub fn version(&self) -> (u8, u8) {
+        self.id_header.version()
+    }
+
     /// Returns the wrapped reader, consuming the `OggOpusReader`.
+    #[inline]
     pub fn into_inner(self) -> R {
         self.reader.into_inner()
     }
