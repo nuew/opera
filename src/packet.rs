@@ -404,7 +404,7 @@ impl Display for MalformedPacketError {
 impl Error for MalformedPacketError {}
 
 impl From<BoundsError> for MalformedPacketError {
-    fn from(from: BoundsError) -> MalformedPacketError {
+    fn from(_from: BoundsError) -> MalformedPacketError {
         MalformedPacketError::UnexpectedEof
     }
 }
