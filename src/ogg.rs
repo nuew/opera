@@ -28,7 +28,7 @@ pub enum OggOpusError {
     /// The Identificaion Header indicated that this Ogg file conforms to an unsupported version of
     /// the specification.
     UnsupportedVersion,
-    /// The specified channel layout is malformed, unsupported, or otherwise invalid.
+    /// The specified channel layout or mapping is malformed, unsupported, or otherwise invalid.
     InvalidChannelLayout,
 }
 
@@ -115,79 +115,158 @@ impl TryFrom<u8> for VorbisChannelLayout {
     }
 }
 
+/// Channel Mapping table as defined in RFC 7845
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
+struct StandardMappingTable {
+    /// The number of streams encoded in each Ogg packet.
+    streams: u8,
+    /// The number of streams whose decoders are to be configured to produce two channels
+    /// (stereo sound). Must not be larger then `streams`.
+    coupled: u8,
+    /// A mapping of decoded channels to output channels.
+    mapping: Vec<u8>,
+}
+
+impl StandardMappingTable {
+    fn new(channels: u8, table: &[u8]) -> Result<Self> {
+        let streams = *table.get_res(0)?;
+        let coupled = *table.get_res(1)?;
+
+        // check for invalid mappings
+        if streams == 0 || streams < coupled || usize::from(streams) + usize::from(coupled) > 255 {
+            return Err(OggOpusError::InvalidChannelLayout);
+        }
+
+        Ok(StandardMappingTable {
+            streams,
+            coupled,
+            mapping: table.get_res(2..2 + usize::from(channels))?.to_owned(),
+        })
+    }
+}
+
+/// Ambisonics channel mapping table (for mapping type 3)
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
+struct AmbisonicsMappingTable {
+    /// The number of streams encoded in each Ogg packet.
+    streams: u8,
+    /// The number of streams whose decoders are to be configured to produce two channels
+    /// (stereo sound). Must not be larger then `streams`.
+    coupled: u8,
+    /// The demixing matrix
+    matrix: Vec<u16>,
+}
+
+impl AmbisonicsMappingTable {
+    fn new(channels: u8, table: &[u8]) -> Result<Self> {
+        use byteorder::{ByteOrder, LE};
+
+        let streams = *table.get_res(0)?;
+        let coupled = *table.get_res(1)?;
+
+        // check for invalid mappings
+        if streams == 0 || streams < coupled || usize::from(streams) + usize::from(coupled) > 255 {
+            return Err(OggOpusError::InvalidChannelLayout);
+        }
+
+        Ok(AmbisonicsMappingTable {
+            streams,
+            coupled,
+            matrix: table
+                .get_res(2..2 + (2 * usize::from(channels)))?
+                .chunks_exact(2)
+                .map(LE::read_u16)
+                .collect(),
+        })
+    }
+}
+
 /// The channel mapping family and channel layout for an Ogg Opus stream.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub enum ChannelMappingFamily {
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
+enum ChannelMapping {
     /// Mono, L/R stereo
     RTP(RtpChannelLayout),
     /// 1-8 channel surround
-    Vorbis(VorbisChannelLayout),
+    Vorbis {
+        /// The channel layout.
+        layout: VorbisChannelLayout,
+        /// The Ogg packet channel to output channel mapping.
+        mapping: StandardMappingTable,
+    },
     /// Ambisonics as individual channels
-    AmbisonicsIndividual,
-    /// Ambisonics with demixing matrix
-    AmbisonicsDemixed,
-    /// Experimental use
-    Experimental {
-        /// The mapping family number.
-        family: u8,
+    AmbisonicsIndividual {
         /// The number of channels in use.
         channels: u8,
+        /// The Ogg packet channel to output channel mapping.
+        mapping: StandardMappingTable,
+    },
+    /// Ambisonics with demixing matrix
+    AmbisonicsDemixed {
+        /// The number of channels in use.
+        channels: u8,
+        /// The Ogg packet channel to output channel mapping.
+        mapping: AmbisonicsMappingTable,
     },
     /// Discrete channels
     Discrete {
         /// The number of channels in use.
         channels: u8,
+        /// The Ogg packet channel to output channel mapping.
+        mapping: StandardMappingTable,
     },
 }
 
-impl ChannelMappingFamily {
-    fn new(channels: u8, family: u8) -> Result<Self> {
+impl ChannelMapping {
+    fn new(channels: u8, family: u8, table: &[u8]) -> Result<Self> {
         match family {
-            0 => Ok(ChannelMappingFamily::RTP(RtpChannelLayout::try_from(
+            0 => Ok(ChannelMapping::RTP(RtpChannelLayout::try_from(channels)?)),
+            1 => Ok(ChannelMapping::Vorbis {
+                layout: VorbisChannelLayout::try_from(channels)?,
+                mapping: StandardMappingTable::new(channels, table)?,
+            }),
+            2 => Ok(ChannelMapping::AmbisonicsIndividual {
                 channels,
-            )?)),
-            1 => Ok(ChannelMappingFamily::Vorbis(VorbisChannelLayout::try_from(
+                mapping: StandardMappingTable::new(channels, table)?,
+            }),
+            3 => Ok(ChannelMapping::AmbisonicsDemixed {
                 channels,
-            )?)),
-            2 => Ok(ChannelMappingFamily::AmbisonicsIndividual),
-            3 => Ok(ChannelMappingFamily::AmbisonicsDemixed),
-            family @ 240..=254 => Ok(ChannelMappingFamily::Experimental { family, channels }),
-            255 => Ok(ChannelMappingFamily::Discrete { channels }),
+                mapping: AmbisonicsMappingTable::new(channels, table)?,
+            }),
+            255 => Ok(ChannelMapping::Discrete {
+                channels,
+                mapping: StandardMappingTable::new(channels, table)?,
+            }),
             _ => Err(OggOpusError::InvalidChannelLayout),
+        }
+    }
+
+    /// Returns the number of streams encoded in each Ogg packet.
+    fn streams(&self) -> u8 {
+        match self {
+            ChannelMapping::RTP(_) => 1,
+            ChannelMapping::Vorbis { mapping, .. } => mapping.streams,
+            ChannelMapping::AmbisonicsIndividual { mapping, .. } => mapping.streams,
+            ChannelMapping::AmbisonicsDemixed { mapping, .. } => mapping.streams,
+            ChannelMapping::Discrete { mapping, .. } => mapping.streams,
+        }
+    }
+
+    /// Returns the number of streams whose decoders are to be configured to produce two channels
+    /// (stereo sound). Will not be larger then the return value of [`ChannelMapping::streams`].
+    ///
+    /// [`ChannelMapping::streams`]: #method.streams
+    fn coupled_streams(&self) -> u8 {
+        match self {
+            ChannelMapping::RTP(layout) => *layout as u8 - 1,
+            ChannelMapping::Vorbis { mapping, .. } => mapping.coupled,
+            ChannelMapping::AmbisonicsIndividual { mapping, .. } => mapping.coupled,
+            ChannelMapping::AmbisonicsDemixed { mapping, .. } => mapping.coupled,
+            ChannelMapping::Discrete { mapping, .. } => mapping.coupled,
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-struct ChannelMapping {
-    /// The channel mappping family.
-    family: ChannelMappingFamily,
-    /// The number of streams encoded in each Ogg packet.
-    streams: NonZeroU8,
-    /// The number of streams whose decoders are to be configured to produce two channels (stereo
-    /// sound). This must not be larger then `streams`.
-    coupled_streams: u8,
-}
-
-impl ChannelMapping {
-    fn new(channels: u8, family: u8, _table: &[u8]) -> Result<ChannelMapping> {
-        let family = ChannelMappingFamily::new(channels, family)?;
-
-        let (streams, coupled_streams) = if let ChannelMappingFamily::RTP(_) = family {
-            (NonZeroU8::new(1).unwrap(), channels - 1)
-        } else {
-            unimplemented!()
-        };
-
-        Ok(ChannelMapping {
-            family,
-            streams,
-            coupled_streams,
-        })
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 struct IdHeader {
     /// Encapsulation specification version.
     version: u8,
