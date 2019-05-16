@@ -20,7 +20,7 @@ fn dump<R: Read>(mut reader: R) -> Result<(), Box<dyn Error>> {
     let mut buffer = [0; u16::max_value() as usize];
     let mut read_len = reader.read(&mut buffer)?;
     loop {
-        match Packet::new_with_framing(&buffer[..read_len]) {
+        match Packet::new_with_framing(&buffer[..read_len], true) {
             Ok((packet, next)) => {
                 println!("{:#?}", packet);
 

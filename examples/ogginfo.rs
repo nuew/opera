@@ -13,7 +13,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     for filename in args.skip(1) {
-        println!("{:#?}", OggOpusReader::new(File::open(filename)?)?);
+        let mut oggopus = OggOpusReader::new(File::open(filename)?)?;
+        println!("{:#?}", oggopus);
+        for frame in oggopus.frames() {
+            println!("\t{:?}", frame);
+        }
     }
 
     Ok(())

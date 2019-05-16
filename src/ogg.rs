@@ -1,9 +1,13 @@
 //! Decoding of Ogg-encapsulated Opus streams.
 #![cfg(feature = "ogg")]
 
-use crate::slice_ext::{BoundsError, SliceExt};
+use crate::{
+    packet::{Frame, Packet},
+    slice_ext::{BoundsError, SliceExt},
+};
 use ogg::PacketReader;
 use std::{
+    collections::VecDeque,
     convert::TryFrom,
     error::Error,
     fmt::{self, Debug, Display, Formatter},
@@ -607,6 +611,71 @@ impl Debug for CommentHeader {
     }
 }
 
+/// An iterator over the Frames in an Ogg container.
+#[derive(Debug)]
+pub struct Frames<'a, R: Read + Seek> {
+    reader: &'a mut OggOpusReader<R>,
+    frames: VecDeque<crate::packet::Result<Frame>>,
+}
+
+impl<'a, R> Frames<'a, R>
+where
+    R: Read + Seek,
+{
+    fn new(reader: &'a mut OggOpusReader<R>) -> Self {
+        Frames {
+            reader,
+            frames: VecDeque::new(),
+        }
+    }
+
+    /// This overwrites anything currently in `frames`.
+    fn read_packet(&mut self) -> crate::error::Result<Option<()>> {
+        let ogg_packet = match self.reader.reader.read_packet()? {
+            Some(ogg_packet) => ogg_packet.data,
+            None => return Ok(None),
+        };
+
+        let streams = self.reader.channels().streams() as usize;
+        self.frames = (0..streams)
+            .scan(&ogg_packet[..], |data, i| {
+                match Packet::new_with_framing(data, i == streams - 1) {
+                    Ok((packet, new_data)) => {
+                        *data = new_data;
+                        Ok(packet)
+                    }
+                    Err(err) => Err(err),
+                }
+                .into()
+            })
+            .collect::<crate::packet::Result<Vec<_>>>()?
+            .into_iter()
+            .map(|packet| packet.frames())
+            .flatten()
+            .collect();
+        Ok(Some(()))
+    }
+}
+
+impl<'a, R> Iterator for Frames<'a, R>
+where
+    R: Read + Seek,
+{
+    type Item = crate::error::Result<Frame>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(frame) = self.frames.pop_front() {
+            Some(frame.map_err(crate::error::Error::from))
+        } else {
+            if let Err(err) = self.read_packet().transpose()? {
+                Some(Err(err))
+            } else {
+                self.next()
+            }
+        }
+    }
+}
+
 /// A reader for Ogg Opus files and/or streams.
 pub struct OggOpusReader<R: Read + Seek> {
     reader: PacketReader<R>,
@@ -648,6 +717,7 @@ where
     }
 
     /// Returns the output channel configuration.
+    #[inline]
     pub fn channels(&self) -> &ChannelMapping {
         self.id_header.channels()
     }
@@ -656,6 +726,12 @@ where
     #[inline]
     pub fn comments(&self) -> Comments<'_> {
         self.comments.comments()
+    }
+
+    /// Returns an iterator over the contained audio frames.
+    #[inline]
+    pub fn frames(&mut self) -> Frames<'_, R> {
+        Frames::new(self)
     }
 
     /// Returns the number of samples (at 48 kHz) to discard when beginning playback.

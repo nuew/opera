@@ -412,21 +412,27 @@ impl From<BoundsError> for MalformedPacketError {
 /// A specialized Result type for Opus packet decoding.
 pub type Result<T> = std::result::Result<T, MalformedPacketError>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct Frame<'a> {
-    data: &'a [u8],
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct Frame {
+    config: Config,
+    stereo: bool,
+    data: Vec<u8>,
 }
 
-impl<'a> Frame<'a> {
+impl Frame {
     /// The maximum implicit length of a frame, in bytes, according to RFC 6716 § 3.4:R2
     const IMPLICIT_LEN_MAX: usize = 1275;
 
-    fn new(data: &'a [u8]) -> Result<Frame<'a>> {
+    fn new(config: Config, stereo: bool, data: &[u8]) -> Result<Frame> {
         if data.len() > Frame::IMPLICIT_LEN_MAX {
             return Err(MalformedPacketError::OverlongFrame);
         }
 
-        Ok(Frame { data })
+        Ok(Frame {
+            config,
+            stereo,
+            data: data.to_owned(),
+        })
     }
 }
 
@@ -453,11 +459,14 @@ impl<'a> Frame<'a> {
 ///
 /// [`Frame`]: struct.Frame.html
 /// [RFC 6716 § 3]: https://tools.ietf.org/html/rfc6716#section-3
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub struct Packet<'a> {
+    /// Decoder configuration necessary for each Frame.
     config: Config,
+    /// Are the frames encoded as stereo (true) or mono (false)
     stereo: bool,
-    frames: Vec<Frame<'a>>,
+    /// Slices of each individual frame.
+    frames: Vec<&'a [u8]>,
 }
 
 type DecodeFunction<'a> = fn(Config, bool, bool, &'a [u8]) -> Result<(Packet<'a>, &'a [u8])>;
@@ -524,7 +533,7 @@ impl<'a> Packet<'a> {
             Packet {
                 config,
                 stereo,
-                frames: vec![Frame::new(&data.get_res(offset..offset + len)?)?],
+                frames: vec![data.get_res(offset..offset + len)?],
             },
             more_data,
         ))
@@ -552,10 +561,7 @@ impl<'a> Packet<'a> {
             Packet {
                 config,
                 stereo,
-                frames: vec![
-                    Frame::new(&data.get_res(..len)?)?,
-                    Frame::new(&data.get_res(len..len * 2)?)?,
-                ],
+                frames: vec![data.get_res(..len)?, data.get_res(len..len * 2)?],
             },
             more_data,
         ))
@@ -577,10 +583,7 @@ impl<'a> Packet<'a> {
                 Packet {
                     config,
                     stereo,
-                    frames: vec![
-                        Frame::new(&data.get_res(..len1)?)?,
-                        Frame::new(&data.get_res(len1..len1 + len2)?)?,
-                    ],
+                    frames: vec![data.get_res(..len1)?, data.get_res(len1..len1 + len2)?],
                 },
                 &more_data[len1..],
             ))
@@ -653,7 +656,7 @@ impl<'a> Packet<'a> {
                         let new_offset = offset + len;
                         let data = &data.get_res(offset..new_offset)?;
                         offset = new_offset;
-                        Frame::new(data)
+                        Ok(*data)
                     })
                     .collect::<Result<Vec<_>>>()?,
             },
@@ -682,8 +685,8 @@ impl<'a> Packet<'a> {
                 config,
                 stereo,
                 frames: (0..frame_count)
-                    .map(|i| Frame::new(&data.get_res(len * i..len * (i + 1))?))
-                    .collect::<Result<_>>()?,
+                    .map(|i| Ok(data.get_res(len * i..len * (i + 1))?))
+                    .collect::<Result<Vec<_>>>()?,
             },
             &data[len * frame_count..],
         ))
@@ -704,27 +707,28 @@ impl<'a> Packet<'a> {
     /// The length of `data` __must__ be exactly the length of the packet; otherwise, the packet
     /// may fail to decode, or worse, end in garbage.
     pub fn new(data: &'a [u8]) -> Result<Packet<'a>> {
-        let toc = TableOfContents::from(*data.first_res()?);
-        Packet::layout_function(toc.frames_layout())(toc.config(), toc.stereo(), false, &data[1..])
-            .map(|(packet, _)| packet)
+        Self::new_with_framing(data, false).map(|(packet, _)| packet)
     }
 
-    /// Decodes a self-delimited packet from bytes.
+    /// Decodes a potentially self-delimited packet from bytes.
     ///
     /// See [RFC 6716 Appendix B].
     ///
     /// [RFC 6716 Appendix B]: https://tools.ietf.org/html/rfc6716#appendix-B
-    pub fn new_with_framing(data: &'a [u8]) -> Result<(Packet<'a>, &'a [u8])> {
+    pub fn new_with_framing(data: &'a [u8], framing: bool) -> Result<(Packet<'a>, &'a [u8])> {
         let toc = TableOfContents::from(*data.first_res()?);
-        Packet::layout_function(toc.frames_layout())(toc.config(), toc.stereo(), true, &data[1..])
+        Packet::layout_function(toc.frames_layout())(
+            toc.config(),
+            toc.stereo(),
+            framing,
+            &data[1..],
+        )
     }
-}
 
-impl<'a> IntoIterator for Packet<'a> {
-    type Item = Frame<'a>;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.frames.into_iter()
+    pub fn frames(self) -> impl Iterator<Item = Result<Frame>> + ExactSizeIterator + 'a {
+        let (config, stereo, frames) = (self.config, self.stereo, self.frames);
+        frames
+            .into_iter()
+            .map(move |slice| Frame::new(config, stereo, slice))
     }
 }
