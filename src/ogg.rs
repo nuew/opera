@@ -639,7 +639,7 @@ where
         let streams = self.reader.channels().streams() as usize;
         self.frames = (0..streams)
             .scan(&ogg_packet[..], |data, i| {
-                match Packet::new_with_framing(data, i == streams - 1) {
+                match Packet::new_with_framing(data, i != streams - 1) {
                     Ok((packet, new_data)) => {
                         *data = new_data;
                         Ok(packet)
