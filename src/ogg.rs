@@ -60,7 +60,7 @@ type Result<T> = ::std::result::Result<T, OggOpusError>;
 
 /// RTP-style channel mapping layouts.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub enum RtpChannelLayout {
+enum RtpChannelLayout {
     /// monomorphic
     Mono = 1,
     /// stereo (left, right)
@@ -81,7 +81,7 @@ impl TryFrom<u8> for RtpChannelLayout {
 
 /// Vorbis-style channel mapping layouts.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub enum VorbisChannelLayout {
+enum VorbisChannelLayout {
     /// monomorphic
     Mono = 1,
     /// stereo (left, right)
@@ -120,7 +120,7 @@ impl TryFrom<u8> for VorbisChannelLayout {
 
 /// Ambisonics channel mapping layouts.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub enum AmbisonicsChannelLayout {
+enum AmbisonicsChannelLayout {
     /// Zeroth-order Ambisonics
     Zero = 1,
     /// Zeroth-order Ambisonics with non-diegetic stereo stream
@@ -225,7 +225,7 @@ impl TryFrom<u8> for AmbisonicsChannelLayout {
 
 /// Channel Mapping table as defined in RFC 7845
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
-pub struct StandardMappingTable {
+struct StandardMappingTable {
     /// The number of streams encoded in each Ogg packet.
     streams: u8,
     /// The number of streams whose decoders are to be configured to produce two channels
@@ -254,7 +254,7 @@ impl StandardMappingTable {
 
     /// Returns the number of streams encoded in each Ogg packet.
     #[inline]
-    pub fn streams(&self) -> u8 {
+    fn streams(&self) -> u8 {
         self.streams
     }
 
@@ -263,14 +263,14 @@ impl StandardMappingTable {
     ///
     /// [`StandardMappingTable::streams`]: #method.streams
     #[inline]
-    pub fn coupled(&self) -> u8 {
+    fn coupled(&self) -> u8 {
         self.coupled
     }
 }
 
 /// Ambisonics channel mapping table (for mapping type 3)
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
-pub struct AmbisonicsMappingTable {
+struct AmbisonicsMappingTable {
     /// The number of streams encoded in each Ogg packet.
     streams: u8,
     /// The number of streams whose decoders are to be configured to produce two channels
@@ -305,7 +305,7 @@ impl AmbisonicsMappingTable {
 
     /// Returns the number of streams encoded in each Ogg packet.
     #[inline]
-    pub fn streams(&self) -> u8 {
+    fn streams(&self) -> u8 {
         self.streams
     }
 
@@ -314,14 +314,14 @@ impl AmbisonicsMappingTable {
     ///
     /// [`AmbisonicsMappingTable::streams`]: #method.streams
     #[inline]
-    pub fn coupled(&self) -> u8 {
+    fn coupled(&self) -> u8 {
         self.coupled
     }
 }
 
 /// The channel mapping family and channel layout for an Ogg Opus stream.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
-pub enum ChannelMapping {
+enum ChannelMapping {
     /// Mono, L/R stereo
     RTP(RtpChannelLayout),
     /// 1-8 channel surround
@@ -379,7 +379,7 @@ impl ChannelMapping {
     }
 
     /// Returns the number of streams encoded in each Ogg packet.
-    pub fn streams(&self) -> u8 {
+    fn streams(&self) -> u8 {
         match self {
             ChannelMapping::RTP(_) => 1,
             ChannelMapping::Vorbis { mapping, .. } => mapping.streams(),
@@ -393,7 +393,7 @@ impl ChannelMapping {
     /// (stereo sound). Will not be larger then the return value of [`ChannelMapping::streams`].
     ///
     /// [`ChannelMapping::streams`]: #method.streams
-    pub fn coupled_streams(&self) -> u8 {
+    fn coupled_streams(&self) -> u8 {
         match self {
             ChannelMapping::RTP(layout) => *layout as u8 - 1,
             ChannelMapping::Vorbis { mapping, .. } => mapping.coupled(),
@@ -636,7 +636,7 @@ where
             None => return Ok(None),
         };
 
-        let streams = self.reader.channels().streams() as usize;
+        let streams = self.reader.id_header.channels().streams() as usize;
         self.frames = (0..streams)
             .scan(&ogg_packet[..], |data, i| {
                 match Packet::new_with_framing(data, i != streams - 1) {
@@ -712,12 +712,6 @@ where
             id_header,
             comments,
         })
-    }
-
-    /// Returns the output channel configuration.
-    #[inline]
-    pub fn channels(&self) -> &ChannelMapping {
-        self.id_header.channels()
     }
 
     /// Returns an iterator over user comments contained in the Vorbis comments block.
