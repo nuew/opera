@@ -14,8 +14,8 @@ before_script:
 script:
   - travis-cargo test
   - travis-cargo bench
-  - travis-cargo test -- --all-features
-  - travis-cargo bench -- --all-features
+  - travis-cargo test -- --no-default-features
+  - travis-cargo bench -- --no-default-features
   - travis-cargo --only stable doc -- --package opera
 deploy:
   provider: cargo

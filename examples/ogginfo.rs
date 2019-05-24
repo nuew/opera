@@ -1,4 +1,5 @@
 //! Prints information about the supplied Ogg Opus files.
+#![cfg(feature = "ogg")]
 
 use std::error::Error;
 
@@ -16,7 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut oggopus = OggOpusReader::new(File::open(filename)?)?;
         println!("{:#?}", oggopus);
         for frame in oggopus.frames() {
-            println!("\t{:?}", frame);
+            println!("\t{:?}", frame?);
         }
     }
 

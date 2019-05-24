@@ -25,3 +25,7 @@ opus-sys = "0.2"
 [features]
 default = ["ogg"]
 ogg_async = ["ogg/async"]
+
+[[example]]
+name = "ogginfo"
+required-features = ["ogg"]
