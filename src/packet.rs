@@ -134,6 +134,20 @@ enum FrameSize {
     Sixty,
 }
 
+impl FrameSize {
+    /// Returns the corresponding number of microseconds as an integer.
+    fn as_microseconds(self) -> u16 {
+        match self {
+            FrameSize::TwoPointFive => 2_500,
+            FrameSize::Five => 5_000,
+            FrameSize::Ten => 10_000,
+            FrameSize::Twenty => 20_000,
+            FrameSize::Fourty => 40_000,
+            FrameSize::Sixty => 60_000,
+        }
+    }
+}
+
 impl Debug for FrameSize {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
@@ -170,14 +184,7 @@ impl From<ConfigNumber> for FrameSize {
 
 impl From<FrameSize> for Duration {
     fn from(from: FrameSize) -> Duration {
-        match from {
-            FrameSize::TwoPointFive => Duration::from_micros(2500),
-            FrameSize::Five => Duration::from_millis(5),
-            FrameSize::Ten => Duration::from_millis(10),
-            FrameSize::Twenty => Duration::from_millis(20),
-            FrameSize::Fourty => Duration::from_millis(40),
-            FrameSize::Sixty => Duration::from_millis(60),
-        }
+        Duration::from_micros(u64::from(from.as_microseconds()))
     }
 }
 
@@ -472,8 +479,8 @@ pub struct Packet<'a> {
 type DecodeFunction<'a> = fn(Config, bool, bool, &'a [u8]) -> Result<(Packet<'a>, &'a [u8])>;
 
 impl<'a> Packet<'a> {
-    /// The maximum allowable duration of a packet.
-    const DURATION_MAX: Duration = Duration::from_millis(120);
+    /// The maximum allowable duration of a packet in microseconds.
+    const DURATION_MAX: u32 = 120_000;
 
     /// Returns the length code of the packet and the offset to add.
     fn length_code(data: &[u8]) -> Result<(usize, usize)> {
@@ -605,9 +612,10 @@ impl<'a> Packet<'a> {
 
         // Handle R5 exclusions
         let frame_count = u32::from(fc.frame_count());
+        let length_us = u32::from(config.frame_size.as_microseconds());
         if frame_count == 0 {
             return Err(MalformedPacketError::ZeroFrames);
-        } else if frame_count * Duration::from(config.frame_size) > Packet::DURATION_MAX {
+        } else if frame_count * length_us > Packet::DURATION_MAX {
             return Err(MalformedPacketError::OverlongDuration);
         }
 
