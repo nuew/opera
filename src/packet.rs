@@ -362,11 +362,12 @@ impl From<FrameCount> for u8 {
 pub enum MalformedPacketError {
     /// Has the same meaning as [`std::io::ErrorKind::UnexpectedEof`]
     ///
-    /// This handles both errors under [RFC 6716 § 3.4:R1] and miscellenous other situations in
-    /// which the packet appears to have ended early.
+    /// This handles both errors under [RFC 6716 § 3.4:R1],  [RFC 6716 § 3.4:R7], and
+    /// miscellenous other situations in which the packet appears to have ended early.
     ///
     /// [`std::io::ErrorKind::UnexpectedEof`]: https://doc.rust-lang.org/nightly/std/io/enum.ErrorKind.html#variant.UnexpectedEof
     /// [RFC 6716 § 3.4:R1]: https://tools.ietf.org/html/rfc6716#ref-R1
+    /// [RFC 6716 § 3.4:R7]: https://tools.ietf.org/html/rfc6716#ref-R7
     UnexpectedEof,
     /// A contained frame is longer than the limit of 1275 bytes ([RFC 6716 § 3.4:R2])
     ///
@@ -430,16 +431,20 @@ impl Frame {
     /// The maximum implicit length of a frame, in bytes, according to RFC 6716 § 3.4:R2
     const IMPLICIT_LEN_MAX: usize = 1275;
 
-    fn new(config: Config, stereo: bool, data: &[u8]) -> Result<Frame> {
-        if data.len() > Frame::IMPLICIT_LEN_MAX {
-            return Err(MalformedPacketError::OverlongFrame);
-        }
-
-        Ok(Frame {
+    fn new(config: Config, stereo: bool, data: &[u8]) -> Frame {
+        Frame {
             config,
             stereo,
             data: data.to_owned(),
-        })
+        }
+    }
+
+    fn check_length(len: usize) -> Result<()> {
+        if len <= Frame::IMPLICIT_LEN_MAX {
+            Ok(())
+        } else {
+            Err(MalformedPacketError::OverlongFrame)
+        }
     }
 }
 
@@ -510,7 +515,7 @@ impl<'a> Packet<'a> {
     /// Returns the length of the padding bytes at the end of the current packet, based on the
     /// padding size bytes. Also returns where to continue reading from after the padding
     /// size bytes.
-    fn padding(data: &'a [u8]) -> Option<(usize, &'a [u8])> {
+    fn padding(data: &'a [u8]) -> Result<(usize, &'a [u8])> {
         let mut padding = 0;
         let mut offset = 0;
 
@@ -519,13 +524,13 @@ impl<'a> Packet<'a> {
 
             match *byte {
                 MAX => padding += 254,
-                fin => return Some((padding + usize::from(fin), &data[offset + 1..])),
+                fin => return Ok((padding + usize::from(fin), &data[offset + 1..])),
             };
 
             offset += 1;
         }
 
-        None
+        Err(MalformedPacketError::UnexpectedEof)
     }
 
     /// Decodes the body of a code 0 packet.
@@ -536,6 +541,8 @@ impl<'a> Packet<'a> {
         data: &'a [u8],
     ) -> Result<(Packet<'a>, &'a [u8])> {
         let (len, offset, more_data) = Packet::framing(framing, data)?;
+        Frame::check_length(len)?;
+
         Ok((
             Packet {
                 config,
@@ -562,6 +569,7 @@ impl<'a> Packet<'a> {
         } else {
             len / 2
         };
+        Frame::check_length(len)?;
         let data = &data[offset..];
 
         Ok((
@@ -584,6 +592,8 @@ impl<'a> Packet<'a> {
         let (len1, offset1) = Packet::length_code(data)?;
         let (len2, offset2, more_data) = Packet::framing(framing, &data[offset1..])?;
         let data = &data[offset1 + offset2..];
+
+        Frame::check_length(len1).and(Frame::check_length(len2))?;
 
         if len1 <= data.len() {
             Ok((
@@ -621,7 +631,7 @@ impl<'a> Packet<'a> {
 
         // Handle padding
         let (padding, data) = if fc.padding() {
-            Packet::padding(&data[1..]).ok_or(MalformedPacketError::UnexpectedEof)?
+            Packet::padding(&data[1..])?
         } else {
             (0, &data[1..])
         };
@@ -654,19 +664,20 @@ impl<'a> Packet<'a> {
                 stereo,
                 frames: (0..frame_count + usize::from(framing))
                     .map(|_| {
-                        let (size, new_offset) = Packet::length_code(&data[offset..])?;
+                        let (len, new_offset) = Packet::length_code(&data[offset..])?;
+                        Frame::check_length(len)?;
                         offset = new_offset;
-                        Ok(size)
+                        Ok(len)
                     })
                     .collect::<Result<Vec<_>>>()?
                     .into_iter()
                     .map(|len| {
                         let new_offset = offset + len;
-                        let data = &data.get_res(offset..new_offset)?;
+                        let data = data.get_res(offset..new_offset);
                         offset = new_offset;
-                        Ok(*data)
+                        data
                     })
-                    .collect::<Result<Vec<_>>>()?,
+                    .collect::<std::result::Result<Vec<_>, BoundsError>>()?,
             },
             data,
         ))
@@ -686,6 +697,7 @@ impl<'a> Packet<'a> {
             // TODO test if this divides evenly
             (data.len() / frame_count, 0)
         };
+        Frame::check_length(len)?;
 
         let data = &data[offset..];
         Ok((
@@ -693,8 +705,8 @@ impl<'a> Packet<'a> {
                 config,
                 stereo,
                 frames: (0..frame_count)
-                    .map(|i| Ok(data.get_res(len * i..len * (i + 1))?))
-                    .collect::<Result<Vec<_>>>()?,
+                    .map(|i| data.get_res(len * i..len * (i + 1)))
+                    .collect::<std::result::Result<Vec<_>, BoundsError>>()?,
             },
             &data[len * frame_count..],
         ))
@@ -733,7 +745,7 @@ impl<'a> Packet<'a> {
         )
     }
 
-    pub fn frames(self) -> impl Iterator<Item = Result<Frame>> + ExactSizeIterator + 'a {
+    pub fn frames(self) -> impl Iterator<Item = Frame> + ExactSizeIterator + 'a {
         let (config, stereo, frames) = (self.config, self.stereo, self.frames);
         frames
             .into_iter()

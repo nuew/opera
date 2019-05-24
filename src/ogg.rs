@@ -615,7 +615,7 @@ impl Debug for CommentHeader {
 #[derive(Debug)]
 pub struct Frames<'a, R: Read + Seek> {
     reader: &'a mut OggOpusReader<R>,
-    frames: VecDeque<crate::packet::Result<Frame>>,
+    frames: VecDeque<Frame>,
 }
 
 impl<'a, R> Frames<'a, R>
@@ -665,7 +665,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(frame) = self.frames.pop_front() {
-            Some(frame.map_err(crate::error::Error::from))
+            Some(Ok(frame))
         } else if let Err(err) = self.read_packet().transpose()? {
             Some(Err(err))
         } else {
