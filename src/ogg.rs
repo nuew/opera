@@ -611,33 +611,40 @@ impl Debug for CommentHeader {
     }
 }
 
-/// An iterator over the Frames in an Ogg container.
+/// An iterator over the groups of Opus Packets in an Ogg container.
 #[derive(Debug)]
-pub struct Frames<'a, R: Read + Seek> {
-    reader: &'a mut OggOpusReader<R>,
-    frames: VecDeque<Frame>,
+struct Packets<R: Read + Seek> {
+    reader: OggOpusReader<R>,
 }
 
-impl<'a, R> Frames<'a, R>
+impl<R> Packets<R>
 where
     R: Read + Seek,
 {
-    fn new(reader: &'a mut OggOpusReader<R>) -> Self {
-        Frames {
-            reader,
-            frames: VecDeque::new(),
-        }
+    fn new(reader: OggOpusReader<R>) -> Self {
+        Packets { reader }
     }
 
-    /// This overwrites anything currently in `frames`.
-    fn read_packet(&mut self) -> crate::error::Result<Option<()>> {
-        let ogg_packet = match self.reader.reader.read_packet()? {
-            Some(ogg_packet) => ogg_packet.data,
-            None => return Ok(None),
+    fn into_inner(self) -> OggOpusReader<R> {
+        self.reader
+    }
+}
+
+impl<R> Iterator for Packets<R>
+where
+    R: Read + Seek,
+{
+    type Item = crate::error::Result<Vec<Packet>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let ogg_packet = match self.reader.reader.read_packet() {
+            Ok(Some(ogg_packet)) => ogg_packet.data,
+            Ok(None) => return None,
+            Err(err) => return Some(Err(err.into())),
         };
 
         let streams = self.reader.id_header.channels().streams() as usize;
-        self.frames = (0..streams)
+        (0..streams)
             .scan(&ogg_packet[..], |data, i| {
                 match Packet::new_with_framing(data, i != streams - 1) {
                     Ok((packet, new_data)) => {
@@ -648,29 +655,58 @@ where
                 }
                 .into()
             })
-            .collect::<crate::packet::Result<Vec<_>>>()?
-            .into_iter()
-            .map(Packet::frames)
-            .flatten()
-            .collect();
-        Ok(Some(()))
+            .collect::<crate::packet::Result<Vec<_>>>()
+            .map_err(Into::into)
+            .into()
     }
 }
 
-impl<'a, R> Iterator for Frames<'a, R>
+/// An iterator over frames.
+#[derive(Debug)]
+pub struct Frames<R: Read + Seek> {
+    packets: Packets<R>,
+    frame_cache: Vec<Frame>,
+}
+
+impl<R> Frames<R>
+where
+    R: Read + Seek,
+{
+    fn new(packets: Packets<R>) -> Frames<R> {
+        Frames {
+            packets,
+            frame_cache: Vec::new(),
+        }
+    }
+
+    /// Destroy this iterator, returning the wrapped [`OggOpusReader<T>`].
+    ///
+    /// [`OggOpusReader<T>`]: struct.OggOpusReader.html
+    pub fn into_inner(self) -> OggOpusReader<R> {
+        self.packets.into_inner()
+    }
+}
+
+impl<R> Iterator for Frames<R>
 where
     R: Read + Seek,
 {
     type Item = crate::error::Result<Frame>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(frame) = self.frames.pop_front() {
-            Some(Ok(frame))
-        } else if let Err(err) = self.read_packet().transpose()? {
-            Some(Err(err))
-        } else {
-            self.next()
+        if self.frame_cache.is_empty() {
+            self.frame_cache = match self.packets.next()? {
+                Ok(packets) => packets
+                    .into_iter()
+                    .map(Packet::frames)
+                    .rev()
+                    .flatten()
+                    .collect(),
+                Err(err) => return Some(Err(err)),
+            };
         }
+
+        Some(Ok(self.frame_cache.pop()?))
     }
 }
 
@@ -722,8 +758,14 @@ where
 
     /// Returns an iterator over the contained audio frames.
     #[inline]
-    pub fn frames(&mut self) -> Frames<'_, R> {
-        Frames::new(self)
+    pub fn frames(self) -> Frames<R> {
+        Frames::new(self.packets())
+    }
+
+    /// Returns an iterator over the contained Opus packets.
+    #[inline]
+    fn packets(self) -> Packets<R> {
+        Packets::new(self)
     }
 
     /// Returns the number of samples (at 48 kHz) to discard when beginning playback.
