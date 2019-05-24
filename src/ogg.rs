@@ -748,7 +748,7 @@ where
         self.id_header.sample_rate()
     }
 
-    /// Returns 20*log_10 of the factor by which to scale the decoder output to
+    /// Returns 20&thinsp;log<sub>10</sub> of the factor by which to scale the decoder output to
     /// receive the desired playback volume.
     #[inline]
     pub fn output_gain(&self) -> i16 {
