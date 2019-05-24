@@ -650,7 +650,7 @@ where
             })
             .collect::<crate::packet::Result<Vec<_>>>()?
             .into_iter()
-            .map(|packet| packet.frames())
+            .map(Packet::frames)
             .flatten()
             .collect();
         Ok(Some(()))
@@ -666,12 +666,10 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(frame) = self.frames.pop_front() {
             Some(frame.map_err(crate::error::Error::from))
+        } else if let Err(err) = self.read_packet().transpose()? {
+            Some(Err(err))
         } else {
-            if let Err(err) = self.read_packet().transpose()? {
-                Some(Err(err))
-            } else {
-                self.next()
-            }
+            self.next()
         }
     }
 }
