@@ -2,7 +2,7 @@ use crate::packet::MalformedPacketError;
 use std::{
     error,
     fmt::{self, Display, Formatter},
-    io, result,
+    result,
 };
 
 #[cfg(feature = "ogg")]
@@ -12,11 +12,10 @@ use ogg::OggReadError;
 use crate::ogg::OggOpusError;
 
 #[derive(Debug)]
+#[cfg_attr(not(feature = "ogg"), derive(Clone, Copy))]
 #[allow(variant_size_differences)]
 /// An error that has occured during decoding.
 pub enum Error {
-    /// An error in an underlying I/O operation.
-    Io(io::Error),
     /// A received packet was malformed.
     MalformedPacket(MalformedPacketError),
     #[cfg(feature = "ogg")]
@@ -30,7 +29,6 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Io(err) => err.fmt(f),
             Error::MalformedPacket(err) => err.fmt(f),
             #[cfg(feature = "ogg")]
             Error::Ogg(err) => err.fmt(f),
@@ -47,19 +45,12 @@ impl error::Error for Error {
 
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
-            Error::Io(err) => Some(err),
             Error::MalformedPacket(err) => Some(err),
             #[cfg(feature = "ogg")]
             Error::Ogg(err) => Some(err),
             #[cfg(feature = "ogg")]
             Error::OggOpus(err) => Some(err),
         }
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(from: io::Error) -> Error {
-        Error::Io(from)
     }
 }
 
