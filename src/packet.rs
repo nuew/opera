@@ -397,9 +397,11 @@ pub enum MalformedPacketError {
 impl Display for MalformedPacketError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            MalformedPacketError::UnexpectedEof => "packet ended early (R1 or unexpected EOF)",
+            MalformedPacketError::UnexpectedEof => "packet ended early (R1, R7, or unexpected EOF)",
             MalformedPacketError::OverlongFrame => "contained frame exceeds 1275 byte limit (R2)",
-            MalformedPacketError::UnevenFrameLengths => "packet has invalid payload length (R3)",
+            MalformedPacketError::UnevenFrameLengths => {
+                "packet has invalid payload length (R3 or R6)"
+            }
             MalformedPacketError::FrameOverflow => {
                 "contained frame puports to be longer than the packet itself (R4)"
             }
@@ -436,14 +438,6 @@ impl Frame {
             config,
             stereo,
             data: data.to_owned(),
-        }
-    }
-
-    fn check_length(len: usize) -> Result<()> {
-        if len <= Frame::IMPLICIT_LEN_MAX {
-            Ok(())
-        } else {
-            Err(MalformedPacketError::OverlongFrame)
         }
     }
 }
@@ -502,13 +496,21 @@ impl Packet {
 
     /// Returns data necessary for self-delimiting framing, or the default data if not using
     /// self-delimiting framing.
-    fn framing(framing: bool, data: &[u8]) -> Result<(usize, usize, &[u8])> {
-        if framing {
+    fn framing<T>(data: &[u8], self_delimited: bool, implicit: T) -> Result<(usize, usize, &[u8])>
+    where
+        T: Fn(usize) -> Option<usize>,
+    {
+        if self_delimited {
             let (len, offset) = Packet::length_code(data)?;
             let data = &data.get_res(offset + len..)?;
             Ok((len, offset, data))
         } else {
-            Ok((data.len(), 0, data))
+            let len = implicit(data.len()).ok_or(MalformedPacketError::UnevenFrameLengths)?;
+            if len <= Frame::IMPLICIT_LEN_MAX {
+                Ok((len, 0, data))
+            } else {
+                Err(MalformedPacketError::OverlongFrame)
+            }
         }
     }
 
@@ -537,12 +539,10 @@ impl Packet {
     fn decode_code_0(
         config: Config,
         stereo: bool,
-        framing: bool,
+        self_delimiting: bool,
         data: &[u8],
     ) -> Result<(Packet, &[u8])> {
-        let (len, offset, more_data) = Packet::framing(framing, data)?;
-        Frame::check_length(len)?;
-
+        let (len, offset, more_data) = Packet::framing(data, self_delimiting, Some)?;
         Ok((
             Packet {
                 config,
@@ -557,19 +557,16 @@ impl Packet {
     fn decode_code_1(
         config: Config,
         stereo: bool,
-        framing: bool,
+        self_delimiting: bool,
         data: &[u8],
     ) -> Result<(Packet, &[u8])> {
-        let (len, offset, more_data) = Packet::framing(framing, data)?;
-
-        let len = if framing {
-            len
-        } else if (len & 1) != 0 {
-            return Err(MalformedPacketError::UnevenFrameLengths);
-        } else {
-            len / 2
-        };
-        Frame::check_length(len)?;
+        let (len, offset, more_data) = Packet::framing(data, self_delimiting, |len| {
+            if len & 1 == 0 {
+                Some(len / 2)
+            } else {
+                None
+            }
+        })?;
         let data = &data[offset..];
 
         Ok((
@@ -589,28 +586,28 @@ impl Packet {
     fn decode_code_2(
         config: Config,
         stereo: bool,
-        framing: bool,
+        self_delimiting: bool,
         data: &[u8],
     ) -> Result<(Packet, &[u8])> {
         let (len1, offset1) = Packet::length_code(data)?;
-        let (len2, offset2, more_data) = Packet::framing(framing, &data[offset1..])?;
+        let (len2, offset2, more_data) =
+            Packet::framing(&data[offset1..], self_delimiting, |len| Some(len - len1))?;
         let data = &data[offset1 + offset2..];
 
-        Frame::check_length(len1).and(Frame::check_length(len2))?;
-
         if len1 <= data.len() {
+            let end = len1 + len2;
             Ok((
                 Packet {
                     config,
                     stereo,
                     frames: vec![
                         data.get_res(..len1)?.to_owned(),
-                        data.get_res(len1..len1 + len2)?.to_owned(),
+                        data.get_res(len1..end)?.to_owned(),
                     ],
                 },
-                &more_data[len1..],
+                &more_data[end..],
             ))
-        } else if framing {
+        } else if self_delimiting {
             Err(MalformedPacketError::UnexpectedEof)
         } else {
             Err(MalformedPacketError::FrameOverflow)
@@ -621,7 +618,7 @@ impl Packet {
     fn decode_code_3(
         config: Config,
         stereo: bool,
-        framing: bool,
+        self_delimiting: bool,
         data: &[u8],
     ) -> Result<(Packet, &[u8])> {
         let fc = FrameCount::from(*data.first_res()?);
@@ -648,19 +645,17 @@ impl Packet {
         } else {
             Packet::decode_code_3_cbr
         };
-        let (packet, more_data) = func(config, stereo, framing, data, frame_count as usize)?;
-
-        // skip Opus padding
-        Ok((packet, &more_data.get_res(padding..)?))
+        func(config, stereo, self_delimiting, data, frame_count, padding)
     }
 
     /// Decodes the body of a code 3 VBR packet.
     fn decode_code_3_vbr(
         config: Config,
         stereo: bool,
-        framing: bool,
+        self_delimiting: bool,
         data: &[u8],
-        frame_count: usize,
+        frame_count: u32,
+        padding: usize,
     ) -> Result<(Packet, &[u8])> {
         let mut offset = 0;
 
@@ -668,12 +663,20 @@ impl Packet {
             Packet {
                 config,
                 stereo,
-                frames: (0..frame_count + usize::from(framing))
-                    .map(|_| {
-                        let (len, new_offset) = Packet::length_code(&data[offset..])?;
-                        Frame::check_length(len)?;
-                        offset = new_offset;
-                        Ok(len)
+                frames: (0..frame_count)
+                    .scan(0, |total_len, i| {
+                        Some(if self_delimiting || i < frame_count - 1 {
+                            match Packet::length_code(&data[offset..]) {
+                                Ok((len, lc_size)) => {
+                                    offset += lc_size;
+                                    *total_len += len;
+                                    Ok(len)
+                                }
+                                Err(err) => Err(err),
+                            }
+                        } else {
+                            Ok(data.len() - *total_len - offset - padding)
+                        })
                     })
                     .collect::<Result<Vec<_>>>()?
                     .into_iter()
@@ -685,7 +688,7 @@ impl Packet {
                     })
                     .collect::<Result<Vec<_>>>()?,
             },
-            data,
+            &data.get_res(offset + padding..)?,
         ))
     }
 
@@ -693,17 +696,19 @@ impl Packet {
     fn decode_code_3_cbr(
         config: Config,
         stereo: bool,
-        framing: bool,
+        self_delimiting: bool,
         data: &[u8],
-        frame_count: usize,
+        frame_count: u32,
+        padding: usize,
     ) -> Result<(Packet, &[u8])> {
-        let (len, offset) = if framing {
+        let frame_count = frame_count as usize;
+        let (len, offset) = if self_delimiting {
             Packet::length_code(data)?
-        } else {
-            // TODO test if this divides evenly
+        } else if data.len() % frame_count == 0 {
             (data.len() / frame_count, 0)
+        } else {
+            return Err(MalformedPacketError::UnevenFrameLengths);
         };
-        Frame::check_length(len)?;
 
         let data = &data[offset..];
         Ok((
@@ -714,7 +719,7 @@ impl Packet {
                     .map(|i| Ok(data.get_res(len * i..len * (i + 1))?.to_owned()))
                     .collect::<Result<Vec<_>>>()?,
             },
-            &data[len * frame_count..],
+            &data.get_res(len * frame_count + padding..)?,
         ))
     }
 
@@ -741,12 +746,12 @@ impl Packet {
     /// See [RFC 6716 Appendix B].
     ///
     /// [RFC 6716 Appendix B]: https://tools.ietf.org/html/rfc6716#appendix-B
-    pub fn new_with_framing(data: &[u8], framing: bool) -> Result<(Packet, &[u8])> {
+    pub fn new_with_framing(data: &[u8], self_delimiting: bool) -> Result<(Packet, &[u8])> {
         let toc = TableOfContents::from(*data.first_res()?);
         Packet::layout_function(toc.frames_layout())(
             toc.config(),
             toc.stereo(),
-            framing,
+            self_delimiting,
             &data[1..],
         )
     }
