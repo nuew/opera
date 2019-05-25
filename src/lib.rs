@@ -18,6 +18,7 @@
 mod error;
 mod slice_ext;
 
+pub mod channel;
 pub mod ogg;
 pub mod packet;
 

@@ -1,9 +1,9 @@
 //! Dumps a self-framed opus bitstream; for example, the test vectors.
 
-use opera::packet::MalformedPacketError;
-use std::{error::Error, io::prelude::*};
+use opera::Error;
+use std::{error, io::prelude::*};
 
-fn report_error(err: MalformedPacketError, buffer: &[u8]) -> Box<dyn Error> {
+fn report_error(err: Error, buffer: &[u8]) -> Box<dyn error::Error> {
     eprintln!("PARSE ERROR: {:?} [", err);
     for byte in buffer.into_iter() {
         eprintln!("\t{:3.} ({:#010b}, {:#04x})),", byte, byte, byte);
@@ -13,7 +13,7 @@ fn report_error(err: MalformedPacketError, buffer: &[u8]) -> Box<dyn Error> {
     err.into()
 }
 
-fn dump<R: Read>(mut reader: R) -> Result<(), Box<dyn Error>> {
+fn dump<R: Read>(mut reader: R) -> Result<(), Box<dyn error::Error>> {
     use opera::packet::Packet;
     use std::ptr::copy;
 
@@ -27,17 +27,14 @@ fn dump<R: Read>(mut reader: R) -> Result<(), Box<dyn Error>> {
                 read_len = next.len();
                 unsafe { copy(next.as_ptr(), buffer.as_ptr() as *mut _, next.len()) }
             }
-            Err(MalformedPacketError::UnexpectedEof) => {
+            Err(Error::UnexpectedEof) => {
                 let read = reader.read(&mut buffer[read_len..])?;
 
                 if read == 0 {
                     break if read_len == 0 {
                         Ok(())
                     } else {
-                        Err(report_error(
-                            MalformedPacketError::UnexpectedEof,
-                            &buffer[..read_len],
-                        ))
+                        Err(report_error(Error::UnexpectedEof, &buffer[..read_len]))
                     };
                 } else {
                     read_len += read;
@@ -48,7 +45,7 @@ fn dump<R: Read>(mut reader: R) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), Box<dyn error::Error>> {
     use std::{env::args, fs::File};
 
     let filename = match args().nth(1) {

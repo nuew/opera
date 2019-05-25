@@ -1,8 +1,12 @@
 //! Decodes Opus codec packets into sequences of frames.
 
-use crate::slice_ext::{BoundsError, SliceExt};
+use crate::{
+    channel::MappingTable,
+    error::{Error, Result},
+    slice_ext::SliceExt,
+};
 use std::{
-    error::Error,
+    error,
     fmt::{self, Debug, Display, Formatter},
     time::Duration,
 };
@@ -368,7 +372,6 @@ pub enum MalformedPacketError {
     /// [`std::io::ErrorKind::UnexpectedEof`]: https://doc.rust-lang.org/nightly/std/io/enum.ErrorKind.html#variant.UnexpectedEof
     /// [RFC 6716 § 3.4:R1]: https://tools.ietf.org/html/rfc6716#ref-R1
     /// [RFC 6716 § 3.4:R7]: https://tools.ietf.org/html/rfc6716#ref-R7
-    UnexpectedEof,
     /// A contained frame is longer than the limit of 1275 bytes ([RFC 6716 § 3.4:R2])
     ///
     /// [RFC 6716 § 3.4:R2]: https://tools.ietf.org/html/rfc6716#ref-R2
@@ -397,30 +400,16 @@ pub enum MalformedPacketError {
 impl Display for MalformedPacketError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            MalformedPacketError::UnexpectedEof => "packet ended early (R1, R7, or unexpected EOF)",
-            MalformedPacketError::OverlongFrame => "contained frame exceeds 1275 byte limit (R2)",
-            MalformedPacketError::UnevenFrameLengths => {
-                "packet has invalid payload length (R3 or R6)"
-            }
-            MalformedPacketError::FrameOverflow => {
-                "contained frame puports to be longer than the packet itself (R4)"
-            }
-            MalformedPacketError::ZeroFrames => "contained zero frames (R5)",
-            MalformedPacketError::OverlongDuration => "frames totaled longer than 120 ms (R5)",
+            MalformedPacketError::OverlongFrame => "contained frame exceeds 1275 byte limit",
+            MalformedPacketError::UnevenFrameLengths => "packet has invalid payload length",
+            MalformedPacketError::FrameOverflow => "contained frame longer than packet itself",
+            MalformedPacketError::ZeroFrames => "contained zero frames",
+            MalformedPacketError::OverlongDuration => "frames totaled longer than 120 ms",
         })
     }
 }
 
-impl Error for MalformedPacketError {}
-
-impl From<BoundsError> for MalformedPacketError {
-    fn from(_from: BoundsError) -> MalformedPacketError {
-        MalformedPacketError::UnexpectedEof
-    }
-}
-
-/// A specialized Result type for Opus packet decoding.
-pub type Result<T> = std::result::Result<T, MalformedPacketError>;
+impl error::Error for MalformedPacketError {}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Frame {
@@ -444,27 +433,7 @@ impl Frame {
 
 /// An Opus codec packet—that is, a group of [`Frame`]s with a shared configuration.
 ///
-/// [RFC 6716 § 3] provides further details:
-///
-/// ```text
-/// The Opus encoder produces "packets", which are each a contiguous set
-/// of bytes meant to be transmitted as a single unit.  The packets
-/// described here do not include such things as IP, UDP, or RTP headers,
-/// which are normally found in a transport-layer packet.  A single
-/// packet may contain multiple audio frames, so long as they share a
-/// common set of parameters, including the operating mode, audio
-/// bandwidth, frame size, and channel count (mono vs. stereo).  This
-/// section describes the possible combinations of these parameters and
-/// the internal framing used to pack multiple frames into a single
-/// packet.  This framing is not self-delimiting.  Instead, it assumes
-/// that a lower layer (such as UDP or RTP [RFC3550] or Ogg [RFC3533] or
-/// Matroska [MATROSKA-WEBSITE]) will communicate the length, in bytes,
-/// of the packet, and it uses this information to reduce the framing
-/// overhead in the packet itself.
-/// ```
-///
 /// [`Frame`]: struct.Frame.html
-/// [RFC 6716 § 3]: https://tools.ietf.org/html/rfc6716#section-3
 #[derive(Debug, Clone)]
 pub struct Packet {
     /// Decoder configuration necessary for each Frame.
@@ -490,7 +459,7 @@ impl Packet {
                 let second = data.get_res(1)?;
                 Ok(((usize::from(*second) * 4) + usize::from(*first), 2))
             }
-            None => Err(MalformedPacketError::UnexpectedEof),
+            None => Err(Error::UnexpectedEof),
         }
     }
 
@@ -509,7 +478,7 @@ impl Packet {
             if len <= Frame::IMPLICIT_LEN_MAX {
                 Ok((len, 0, data))
             } else {
-                Err(MalformedPacketError::OverlongFrame)
+                Err(MalformedPacketError::OverlongFrame.into())
             }
         }
     }
@@ -532,7 +501,7 @@ impl Packet {
             offset += 1;
         }
 
-        Err(MalformedPacketError::UnexpectedEof)
+        Err(Error::UnexpectedEof)
     }
 
     /// Decodes the body of a code 0 packet.
@@ -608,9 +577,9 @@ impl Packet {
                 &more_data[end..],
             ))
         } else if self_delimiting {
-            Err(MalformedPacketError::UnexpectedEof)
+            Err(Error::UnexpectedEof)
         } else {
-            Err(MalformedPacketError::FrameOverflow)
+            Err(MalformedPacketError::FrameOverflow.into())
         }
     }
 
@@ -627,9 +596,9 @@ impl Packet {
         let frame_count = u32::from(fc.frame_count());
         let length_us = u32::from(config.frame_size.as_microseconds());
         if frame_count == 0 {
-            return Err(MalformedPacketError::ZeroFrames);
+            return Err(MalformedPacketError::ZeroFrames.into());
         } else if frame_count * length_us > Packet::DURATION_MAX {
-            return Err(MalformedPacketError::OverlongDuration);
+            return Err(MalformedPacketError::OverlongDuration.into());
         }
 
         // Handle padding
@@ -707,7 +676,7 @@ impl Packet {
         } else if data.len() % frame_count == 0 {
             (data.len() / frame_count, 0)
         } else {
-            return Err(MalformedPacketError::UnevenFrameLengths);
+            return Err(MalformedPacketError::UnevenFrameLengths.into());
         };
 
         let data = &data[offset..];
@@ -761,5 +730,37 @@ impl Packet {
         frames
             .into_iter()
             .map(move |slice| Frame::new(config, stereo, &slice[..]))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Multistream {
+    packets: Vec<Packet>,
+}
+
+impl Multistream {
+    pub fn new<T>(data: &[u8], mapping_table: &T) -> Result<Multistream>
+    where
+        T: ?Sized + MappingTable,
+    {
+        let streams = mapping_table.streams();
+        Ok(Multistream {
+            packets: (0..streams)
+                .scan(data, |data, i| {
+                    match Packet::new_with_framing(data, i != streams - 1) {
+                        Ok((packet, new_data)) => {
+                            *data = new_data;
+                            Ok(packet)
+                        }
+                        Err(err) => Err(err),
+                    }
+                    .into()
+                })
+                .collect::<Result<Vec<_>>>()?,
+        })
+    }
+
+    pub fn frames(self) -> impl Iterator<Item = Frame> {
+        self.packets.into_iter().rev().map(Packet::frames).flatten()
     }
 }

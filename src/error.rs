@@ -1,4 +1,4 @@
-use crate::packet::MalformedPacketError;
+use crate::{channel::ChannelLayoutError, packet::MalformedPacketError, slice_ext::BoundsError};
 use std::{
     error,
     fmt::{self, Display, Formatter},
@@ -16,8 +16,11 @@ use crate::ogg::OggOpusError;
 #[allow(variant_size_differences)]
 /// An error that has occured during decoding.
 pub enum Error {
+    UnexpectedEof,
     /// A received packet was malformed.
     MalformedPacket(MalformedPacketError),
+    /// The specified channel layout or mapping is malformed, unsupported, or otherwise invalid.
+    ChannelLayout(ChannelLayoutError),
     #[cfg(feature = "ogg")]
     /// The Ogg container itself could not be read.
     Ogg(OggReadError),
@@ -29,7 +32,9 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            Error::UnexpectedEof => f.write_str("unexpected end of stream"),
             Error::MalformedPacket(err) => err.fmt(f),
+            Error::ChannelLayout(err) => err.fmt(f),
             #[cfg(feature = "ogg")]
             Error::Ogg(err) => err.fmt(f),
             #[cfg(feature = "ogg")]
@@ -45,7 +50,9 @@ impl error::Error for Error {
 
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
+            Error::UnexpectedEof => None,
             Error::MalformedPacket(err) => Some(err),
+            Error::ChannelLayout(err) => Some(err),
             #[cfg(feature = "ogg")]
             Error::Ogg(err) => Some(err),
             #[cfg(feature = "ogg")]
@@ -54,9 +61,21 @@ impl error::Error for Error {
     }
 }
 
+impl From<BoundsError> for Error {
+    fn from(_from: BoundsError) -> Error {
+        Error::UnexpectedEof
+    }
+}
+
 impl From<MalformedPacketError> for Error {
     fn from(from: MalformedPacketError) -> Error {
         Error::MalformedPacket(from)
+    }
+}
+
+impl From<ChannelLayoutError> for Error {
+    fn from(from: ChannelLayoutError) -> Error {
+        Error::ChannelLayout(from)
     }
 }
 
