@@ -20,7 +20,6 @@ ogg = { version = "0.7", optional = true }
 
 [dev-dependencies]
 criterion = "0.2"
-opus-sys = "0.2"
 
 [features]
 default = ["ogg"]
