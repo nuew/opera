@@ -78,7 +78,7 @@ impl MappingTable for RtpChannelLayout {
 
 /// Vorbis-style channel mapping layouts.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub(crate) enum VorbisChannelLayout {
+pub enum VorbisChannelLayout {
     /// monomorphic
     Mono = 1,
     /// stereo (left, right)
@@ -117,7 +117,7 @@ impl TryFrom<u8> for VorbisChannelLayout {
 
 /// Ambisonics channel mapping layouts.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub(crate) enum AmbisonicsChannelLayout {
+pub enum AmbisonicsChannelLayout {
     /// Zeroth-order Ambisonics
     Zero = 1,
     /// Zeroth-order Ambisonics with non-diegetic stereo stream
@@ -327,7 +327,7 @@ impl MappingTable for AmbisonicsMappingTable {
 
 /// The channel mapping family and channel layout for an Ogg Opus stream.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
-pub(crate) enum ChannelMapping {
+pub enum ChannelMapping {
     /// Mono, L/R stereo
     RTP(RtpChannelLayout),
     /// 1-8 channel surround
@@ -384,7 +384,7 @@ impl ChannelMapping {
         }
     }
 
-    pub(crate) fn mapping_table(&self) -> &dyn MappingTable {
+    pub fn mapping_table(&self) -> &dyn MappingTable {
         match self {
             ChannelMapping::RTP(ref layout) => layout,
             ChannelMapping::Vorbis { ref mapping, .. } => mapping,
