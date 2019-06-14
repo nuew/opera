@@ -15,7 +15,9 @@
     variant_size_differences
 )]
 
+mod celt;
 mod error;
+mod silk;
 mod slice_ext;
 
 pub mod channel;
