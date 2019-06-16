@@ -16,6 +16,7 @@
 )]
 
 mod celt;
+mod ec;
 mod error;
 mod silk;
 mod slice_ext;
