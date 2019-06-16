@@ -16,7 +16,7 @@ script:
   - travis-cargo bench
   - travis-cargo test -- --no-default-features
   - travis-cargo bench -- --no-default-features
-  - travis-cargo --only stable doc -- --package opera
+  - travis-cargo --only stable doc
 deploy:
   provider: cargo
   on:

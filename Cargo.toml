@@ -1,17 +1,17 @@
 [package]
-name = "opera"
+name = "opi"
 version = "0.0.0"
 authors = ["nuew <code@nuew.net>"]
 edition = "2018" # not sure about this, TODO
 description = "A pure-rust Opus decoding library"
-repository = "https://github.com/nuew/opera"
+repository = "https://github.com/nuew/opi"
 readme = "README.md"
 keywords = ["ogg", "opus", "decoder", "audio", "codec"]
 categories = ["compression", "multimedia::encoding", "multimedia::audio"]
 license = "ISC"
 
 [badges]
-travis-ci = { repository = "nuew/opera", branch = "master" }
+travis-ci = { repository = "nuew/opi", branch = "master" }
 maintenance = { status = "experimental" }
 
 [dependencies]

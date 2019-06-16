@@ -4,7 +4,7 @@
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    use opera::ogg::OggOpusReader;
+    use opi::ogg::OggOpusReader;
     use std::{env::args_os, fs::File};
 
     let args = args_os();

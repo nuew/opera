@@ -1,6 +1,6 @@
 //! Dumps a self-framed opus bitstream; for example, the test vectors.
 
-use opera::Error;
+use opi::Error;
 use std::{error, io::prelude::*};
 
 fn report_error(err: Error, buffer: &[u8]) -> Box<dyn error::Error> {
@@ -14,7 +14,7 @@ fn report_error(err: Error, buffer: &[u8]) -> Box<dyn error::Error> {
 }
 
 fn dump<R: Read>(mut reader: R) -> Result<(), Box<dyn error::Error>> {
-    use opera::packet::Packet;
+    use opi::packet::Packet;
     use std::ptr::copy;
 
     let mut buffer = [0; u16::max_value() as usize];
