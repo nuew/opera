@@ -1,0 +1,9 @@
+# All source files are identical here with what you would get by extracting
+# RFC 6716 and patching it according to RFC 8251. We're using the github
+# mirror of the canonical and RFC-endorsed repository at
+# https://git.xiph.org/opus.git for faster bandwith and to hopefully save
+# xiph.org some money.
+[submodule "opus"]
+	path = opus-rfc8251-sys/opus-rfc8251
+        url = https://github.com/xiph/opus.git
+	branch = update_draft

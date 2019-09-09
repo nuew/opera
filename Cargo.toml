@@ -20,10 +20,14 @@ ogg = { version = "0.7", optional = true }
 
 [dev-dependencies]
 criterion = "0.2"
+opus-rfc8251-sys = { version = "1", path = "./opus-rfc8251-sys" }
 
 [features]
 default = ["ogg"]
 ogg_async = ["ogg/async"]
+
+[workspace]
+members = ["opus-rfc8251-sys"]
 
 [[example]]
 name = "ogginfo"
