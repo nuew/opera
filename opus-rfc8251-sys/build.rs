@@ -18,6 +18,11 @@ const OPUS_DEFINES: &[(&str, Option<&str>)] = &[
     ("OPUS_VERSION", Some("\"1.0.0-rfc8251\"")),
 ];
 
+/// Enable warnings during compilation.
+///
+/// Disabled by default as the unedited source generates one.
+const OPUS_ENABLE_WARNINGS: bool = false;
+
 /// Tail of the string for C header sourcefile makefile precursors
 const OPUS_H_SOURCE_TAIL: &str = "_headers.txt";
 
@@ -135,7 +140,7 @@ where
             .unwrap_or_default()
     }));
 
-    build.compile(OPUS_RFC8251); // build libopus
+    build.warnings(OPUS_ENABLE_WARNINGS).compile(OPUS_RFC8251); // build libopus
 
     // return compiler arguments in the appropriate style
     build
