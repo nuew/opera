@@ -19,7 +19,7 @@ byteorder = "1"
 ogg = { version = "0.7", optional = true }
 
 [dev-dependencies]
-criterion = "0.2"
+criterion = "0.3"
 opus-rfc8251-sys = { version = "1", path = "./opus-rfc8251-sys" }
 
 [features]
