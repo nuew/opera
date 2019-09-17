@@ -29,7 +29,3 @@ ogg_async = ["ogg/async"]
 
 [workspace]
 members = ["opus-rfc8251-sys"]
-
-[[example]]
-name = "ogginfo"
-required-features = ["ogg"]

@@ -1,12 +1,7 @@
 //! Decoding of Ogg-encapsulated Opus streams.
 #![cfg(feature = "ogg")]
 
-use crate::{
-    channel::ChannelMapping,
-    error::Result,
-    packet::{Frame, Multistream},
-    slice_ext::SliceExt,
-};
+use crate::{channel::ChannelMapping, error::Result, slice_ext::SliceExt};
 use ogg::PacketReader;
 use std::{
     error,
@@ -249,57 +244,6 @@ impl Debug for CommentHeader {
     }
 }
 
-/// An iterator over frames.
-#[derive(Debug)]
-pub struct Frames<R: Read + Seek> {
-    reader: OggOpusReader<R>,
-    frame_cache: Vec<Frame>,
-}
-
-impl<R> Frames<R>
-where
-    R: Read + Seek,
-{
-    fn new(reader: OggOpusReader<R>) -> Frames<R> {
-        Frames {
-            reader,
-            frame_cache: Vec::new(),
-        }
-    }
-
-    /// Destroy this iterator, returning the wrapped [`OggOpusReader<T>`].
-    ///
-    /// [`OggOpusReader<T>`]: struct.OggOpusReader.html
-    pub fn into_inner(self) -> OggOpusReader<R> {
-        self.reader
-    }
-}
-
-impl<R> Iterator for Frames<R>
-where
-    R: Read + Seek,
-{
-    type Item = Result<Frame>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.frame_cache.is_empty() {
-            self.frame_cache = match self.reader.reader.read_packet() {
-                Ok(Some(packet)) => match Multistream::new(
-                    &packet.data[..],
-                    self.reader.id_header.channels().mapping_table(),
-                ) {
-                    Ok(multistream) => multistream.frames().collect(),
-                    Err(err) => return Some(Err(err)),
-                },
-                Ok(None) => return None,
-                Err(err) => return Some(Err(err.into())),
-            };
-        }
-
-        Some(Ok(self.frame_cache.pop()?))
-    }
-}
-
 /// A reader for Ogg Opus files and/or streams.
 pub struct OggOpusReader<R: Read + Seek> {
     reader: PacketReader<R>,
@@ -344,12 +288,6 @@ where
     #[inline]
     pub fn comments(&self) -> Comments<'_> {
         self.comments.comments()
-    }
-
-    /// Returns an iterator over the contained audio frames.
-    #[inline]
-    pub fn frames(self) -> Frames<R> {
-        Frames::new(self)
     }
 
     /// Returns the number of samples (at 48 kHz) to discard when beginning playback.

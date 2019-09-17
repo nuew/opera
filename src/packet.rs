@@ -404,21 +404,21 @@ impl Display for MalformedPacketError {
 impl error::Error for MalformedPacketError {}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Frame {
+pub(crate) struct Frame<'a> {
     config: Config,
     stereo: bool,
-    data: Vec<u8>,
+    data: &'a [u8],
 }
 
-impl Frame {
+impl<'a> Frame<'a> {
     /// The maximum implicit length of a frame, in bytes, according to RFC 6716 § 3.4:R2
     const IMPLICIT_LEN_MAX: usize = 1275;
 
-    fn new(config: Config, stereo: bool, data: &[u8]) -> Frame {
+    fn new(config: Config, stereo: bool, data: &'a [u8]) -> Frame<'a> {
         Frame {
             config,
             stereo,
-            data: data.to_owned(),
+            data,
         }
     }
 }
@@ -427,18 +427,18 @@ impl Frame {
 ///
 /// [`Frame`]: struct.Frame.html
 #[derive(Debug, Clone)]
-pub struct Packet {
+pub struct Packet<'a> {
     /// Decoder configuration necessary for each Frame.
     config: Config,
     /// Are the frames encoded as stereo (true) or mono (false)
     stereo: bool,
     /// Slices of each individual frame.
-    frames: Vec<Vec<u8>>,
+    frames: Vec<&'a [u8]>,
 }
 
-type DecodeFunction = fn(Config, bool, bool, &[u8]) -> Result<(Packet, &[u8])>;
+type DecodeFunction<'a> = fn(Config, bool, bool, &'a [u8]) -> Result<(Packet<'a>, &'a [u8])>;
 
-impl Packet {
+impl<'a> Packet<'a> {
     /// The maximum allowable duration of a packet in microseconds.
     const DURATION_MAX: u32 = 120_000;
 
@@ -501,14 +501,14 @@ impl Packet {
         config: Config,
         stereo: bool,
         self_delimiting: bool,
-        data: &[u8],
-    ) -> Result<(Packet, &[u8])> {
+        data: &'a [u8],
+    ) -> Result<(Packet<'a>, &'a [u8])> {
         let (len, offset, more_data) = Packet::framing(data, self_delimiting, Some)?;
         Ok((
             Packet {
                 config,
                 stereo,
-                frames: vec![data.get_res(offset..offset + len)?.to_owned()],
+                frames: vec![data.get_res(offset..offset + len)?],
             },
             more_data,
         ))
@@ -519,8 +519,8 @@ impl Packet {
         config: Config,
         stereo: bool,
         self_delimiting: bool,
-        data: &[u8],
-    ) -> Result<(Packet, &[u8])> {
+        data: &'a [u8],
+    ) -> Result<(Packet<'a>, &'a [u8])> {
         let (len, offset, more_data) = Packet::framing(data, self_delimiting, |len| {
             if len & 1 == 0 {
                 Some(len / 2)
@@ -534,10 +534,7 @@ impl Packet {
             Packet {
                 config,
                 stereo,
-                frames: vec![
-                    data.get_res(..len)?.to_owned(),
-                    data.get_res(len..len * 2)?.to_owned(),
-                ],
+                frames: vec![data.get_res(..len)?, data.get_res(len..len * 2)?],
             },
             more_data,
         ))
@@ -548,8 +545,8 @@ impl Packet {
         config: Config,
         stereo: bool,
         self_delimiting: bool,
-        data: &[u8],
-    ) -> Result<(Packet, &[u8])> {
+        data: &'a [u8],
+    ) -> Result<(Packet<'a>, &'a [u8])> {
         let (len1, offset1) = Packet::length_code(data)?;
         let (len2, offset2, more_data) =
             Packet::framing(&data[offset1..], self_delimiting, |len| Some(len - len1))?;
@@ -561,10 +558,7 @@ impl Packet {
                 Packet {
                     config,
                     stereo,
-                    frames: vec![
-                        data.get_res(..len1)?.to_owned(),
-                        data.get_res(len1..end)?.to_owned(),
-                    ],
+                    frames: vec![data.get_res(..len1)?, data.get_res(len1..end)?],
                 },
                 &more_data[end..],
             ))
@@ -580,8 +574,8 @@ impl Packet {
         config: Config,
         stereo: bool,
         self_delimiting: bool,
-        data: &[u8],
-    ) -> Result<(Packet, &[u8])> {
+        data: &'a [u8],
+    ) -> Result<(Packet<'a>, &'a [u8])> {
         let fc = FrameCount::from(*data.first_res()?);
 
         // Handle R5 exclusions
@@ -614,10 +608,10 @@ impl Packet {
         config: Config,
         stereo: bool,
         self_delimiting: bool,
-        data: &[u8],
+        data: &'a [u8],
         frame_count: u32,
         padding: usize,
-    ) -> Result<(Packet, &[u8])> {
+    ) -> Result<(Packet<'a>, &'a [u8])> {
         let mut offset = 0;
 
         Ok((
@@ -643,7 +637,7 @@ impl Packet {
                     .into_iter()
                     .map(|len| {
                         let new_offset = offset + len;
-                        let data = data.get_res(offset..new_offset)?.to_owned();
+                        let data = data.get_res(offset..new_offset)?;
                         offset = new_offset;
                         Ok(data)
                     })
@@ -658,10 +652,10 @@ impl Packet {
         config: Config,
         stereo: bool,
         self_delimiting: bool,
-        data: &[u8],
+        data: &'a [u8],
         frame_count: u32,
         padding: usize,
-    ) -> Result<(Packet, &[u8])> {
+    ) -> Result<(Packet<'a>, &'a [u8])> {
         let frame_count = frame_count as usize;
         let (len, offset) = if self_delimiting {
             Packet::length_code(data)?
@@ -677,7 +671,7 @@ impl Packet {
                 config,
                 stereo,
                 frames: (0..frame_count)
-                    .map(|i| Ok(data.get_res(len * i..len * (i + 1))?.to_owned()))
+                    .map(|i| Ok(data.get_res(len * i..len * (i + 1))?))
                     .collect::<Result<Vec<_>>>()?,
             },
             &data.get_res(len * frame_count + padding..)?,
@@ -685,7 +679,7 @@ impl Packet {
     }
 
     /// Returns the decoding function corresponding to the specified frame layout.
-    fn layout_function(frames_layout: FramesLayout) -> DecodeFunction {
+    fn layout_function(frames_layout: FramesLayout) -> DecodeFunction<'a> {
         match frames_layout {
             FramesLayout::One => Packet::decode_code_0,
             FramesLayout::TwoEqual => Packet::decode_code_1,
@@ -698,7 +692,7 @@ impl Packet {
     ///
     /// The length of `data` __must__ be exactly the length of the packet; otherwise, the packet
     /// may fail to decode, or worse, end in garbage.
-    pub fn new(data: &[u8]) -> Result<Packet> {
+    pub fn new(data: &'a [u8]) -> Result<Packet<'a>> {
         Self::new_with_framing(data, false).map(|(packet, _)| packet)
     }
 
@@ -707,7 +701,10 @@ impl Packet {
     /// See [RFC 6716 Appendix B].
     ///
     /// [RFC 6716 Appendix B]: https://tools.ietf.org/html/rfc6716#appendix-B
-    pub fn new_with_framing(data: &[u8], self_delimiting: bool) -> Result<(Packet, &[u8])> {
+    pub fn new_with_framing(
+        data: &'a [u8],
+        self_delimiting: bool,
+    ) -> Result<(Packet<'a>, &'a [u8])> {
         let toc = TableOfContents::from(*data.first_res()?);
         Packet::layout_function(toc.frames_layout())(
             toc.config(),
@@ -717,21 +714,20 @@ impl Packet {
         )
     }
 
-    pub fn frames(self) -> impl Iterator<Item = Frame> + ExactSizeIterator {
-        let (config, stereo, frames) = (self.config, self.stereo, self.frames);
-        frames
-            .into_iter()
-            .map(move |slice| Frame::new(config, stereo, &slice[..]))
+    pub(crate) fn frames(&'a self) -> impl Iterator<Item = Frame<'a>> + ExactSizeIterator {
+        self.frames
+            .iter()
+            .map(move |slice| Frame::new(self.config, self.stereo, &slice[..]))
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Multistream {
-    packets: Vec<Packet>,
+pub struct Multistream<'a> {
+    packets: Vec<Packet<'a>>,
 }
 
-impl Multistream {
-    pub fn new<T>(data: &[u8], mapping_table: &T) -> Result<Multistream>
+impl<'a> Multistream<'a> {
+    pub fn new<T>(data: &'a [u8], mapping_table: &T) -> Result<Multistream<'a>>
     where
         T: ?Sized + MappingTable,
     {
@@ -750,9 +746,5 @@ impl Multistream {
                 })
                 .collect::<Result<Vec<_>>>()?,
         })
-    }
-
-    pub fn frames(self) -> impl Iterator<Item = Frame> {
-        self.packets.into_iter().rev().map(Packet::frames).flatten()
     }
 }
