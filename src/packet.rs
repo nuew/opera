@@ -364,14 +364,6 @@ impl From<FrameCount> for u8 {
 /// The error type returned when a packet is malformed.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub enum MalformedPacketError {
-    /// Has the same meaning as [`std::io::ErrorKind::UnexpectedEof`]
-    ///
-    /// This handles both errors under [RFC 6716 § 3.4:R1],  [RFC 6716 § 3.4:R7], and
-    /// miscellenous other situations in which the packet appears to have ended early.
-    ///
-    /// [`std::io::ErrorKind::UnexpectedEof`]: https://doc.rust-lang.org/nightly/std/io/enum.ErrorKind.html#variant.UnexpectedEof
-    /// [RFC 6716 § 3.4:R1]: https://tools.ietf.org/html/rfc6716#ref-R1
-    /// [RFC 6716 § 3.4:R7]: https://tools.ietf.org/html/rfc6716#ref-R7
     /// A contained frame is longer than the limit of 1275 bytes ([RFC 6716 § 3.4:R2])
     ///
     /// [RFC 6716 § 3.4:R2]: https://tools.ietf.org/html/rfc6716#ref-R2
