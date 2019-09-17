@@ -23,6 +23,7 @@ mod silk;
 mod slice_ext;
 
 pub mod channel;
+pub mod multipacket;
 pub mod ogg;
 pub mod packet;
 

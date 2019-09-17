@@ -1,8 +1,11 @@
 //! Decodes Opus codec packets into sequences of frames.
 
 use crate::{
+    celt::CeltDecoder,
     channel::MappingTable,
     error::{Error, Result},
+    sample::{Sample, Samples},
+    silk::SilkDecoder,
     slice_ext::SliceExt,
 };
 use std::{
@@ -721,30 +724,38 @@ impl<'a> Packet<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Multistream<'a> {
-    packets: Vec<Packet<'a>>,
+#[derive(Debug, Clone, Copy)]
+pub struct Decoder {
+    sample_rate: u32,
+    channels: u8,
+    silk: SilkDecoder,
+    celt: CeltDecoder,
 }
 
-impl<'a> Multistream<'a> {
-    pub fn new<T>(data: &'a [u8], mapping_table: &T) -> Result<Multistream<'a>>
+impl Decoder {
+    pub fn new(sample_rate: u32, channels: u8) -> Decoder {
+        Decoder {
+            sample_rate,
+            channels,
+            silk: SilkDecoder,
+            celt: CeltDecoder,
+        }
+    }
+
+    pub fn decode<'a, S, T>(&mut self, packet: Option<Packet<'a>>, _buf: &mut S) -> Result<()>
     where
-        T: ?Sized + MappingTable,
+        S: Samples<T>,
+        T: Sample,
     {
-        let streams = mapping_table.streams();
-        Ok(Multistream {
-            packets: (0..streams)
-                .scan(data, |data, i| {
-                    match Packet::new_with_framing(data, i != streams - 1) {
-                        Ok((packet, new_data)) => {
-                            *data = new_data;
-                            Ok(packet)
-                        }
-                        Err(err) => Err(err),
-                    }
-                    .into()
-                })
-                .collect::<Result<Vec<_>>>()?,
-        })
+        if let Some(packet) = packet {
+            match packet.config.mode {
+                Mode::Silk => unimplemented!(),
+                Mode::Hybrid => unimplemented!(),
+                Mode::Celt => unimplemented!(),
+            }
+        } else {
+            // TODO packet loss concealment
+            unimplemented!()
+        }
     }
 }
