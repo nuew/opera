@@ -25,4 +25,4 @@ pub mod channel;
 pub mod ogg;
 pub mod packet;
 
-pub use self::error::{Error, Result};
+pub use self::error::Error;
