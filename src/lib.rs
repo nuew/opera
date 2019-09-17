@@ -18,6 +18,7 @@
 mod celt;
 mod ec;
 mod error;
+mod sample;
 mod silk;
 mod slice_ext;
 
@@ -26,3 +27,4 @@ pub mod ogg;
 pub mod packet;
 
 pub use self::error::Error;
+pub use self::sample::{Sample, Samples};
