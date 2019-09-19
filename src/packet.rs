@@ -58,7 +58,7 @@ impl From<TableOfContents> for ConfigNumber {
 
 /// The codec(s) of each frame within a specific packet.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-enum Mode {
+pub(crate) enum Mode {
     /// Uses only the SILK codec
     Silk,
     /// Uses both the SILK and CELT codecs
@@ -89,7 +89,7 @@ impl Default for Mode {
 
 /// The bandwidth of each frame within a specific packet.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-enum Bandwidth {
+pub(crate) enum Bandwidth {
     /// 4 kHz audio bandwidth, with an effective sample rate of 8 kHz
     Narrowband,
     /// 6 kHz audio bandwidth, with an effective sample rate of 12 kHz
@@ -126,7 +126,7 @@ impl Default for Bandwidth {
 
 /// The duration of frames within a specific packet.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-enum FrameSize {
+pub(crate) enum FrameSize {
     /// 2.5 ms
     TwoPointFive,
     /// 5 ms
@@ -143,7 +143,7 @@ enum FrameSize {
 
 impl FrameSize {
     /// Returns the corresponding number of microseconds as an integer.
-    fn as_microseconds(self) -> u16 {
+    pub(crate) fn as_microseconds(self) -> u16 {
         match self {
             FrameSize::TwoPointFive => 2_500,
             FrameSize::Five => 5_000,
@@ -202,10 +202,24 @@ impl Default for FrameSize {
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Default)]
-struct Config {
+pub(crate) struct Config {
     mode: Mode,
     bandwidth: Bandwidth,
     frame_size: FrameSize,
+}
+
+impl Config {
+    pub(crate) fn mode(self) -> Mode {
+        self.mode
+    }
+
+    pub(crate) fn bandwidth(self) -> Bandwidth {
+        self.bandwidth
+    }
+
+    pub(crate) fn frame_size(self) -> FrameSize {
+        self.frame_size
+    }
 }
 
 impl From<ConfigNumber> for Config {
