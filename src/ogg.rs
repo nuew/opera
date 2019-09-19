@@ -1,7 +1,13 @@
 //! Decoding of Ogg-encapsulated Opus streams.
 #![cfg(feature = "ogg")]
 
-use crate::{channel::ChannelMapping, error::Result, slice_ext::SliceExt};
+use crate::{
+    channel::ChannelMapping,
+    error::Result,
+    multipacket::Decoder,
+    sample::{Sample, Samples},
+    slice_ext::SliceExt,
+};
 use ogg::PacketReader;
 use std::{
     error,
@@ -246,9 +252,10 @@ impl Debug for CommentHeader {
 
 /// A reader for Ogg Opus files and/or streams.
 pub struct OggOpusReader<R: Read + Seek> {
-    reader: PacketReader<R>,
-    id_header: IdHeader,
     comments: CommentHeader,
+    decoder: Decoder,
+    id_header: IdHeader,
+    reader: PacketReader<R>,
 }
 
 impl<R> OggOpusReader<R>
@@ -257,6 +264,9 @@ where
 {
     /// Creates a new `OggOpusReader` from the given reader.
     pub fn new(reader: R) -> Result<Self> {
+        // temporary sample rate to decode at until better infrastructure is installed
+        const SAMPLE_RATE_TEMPORARY: u32 = 48_000;
+
         let mut reader = PacketReader::new(reader);
 
         // read id header
@@ -277,10 +287,15 @@ where
             return Err(OggOpusError::BadPaging.into());
         };
 
+        // initialize decoder
+        let channels = id_header.channels().mapping_table().streams();
+        let decoder = Decoder::new(SAMPLE_RATE_TEMPORARY, channels);
+
         Ok(OggOpusReader {
-            reader,
-            id_header,
             comments,
+            decoder,
+            id_header,
+            reader,
         })
     }
 
@@ -321,6 +336,27 @@ where
     #[inline]
     pub fn version(&self) -> (u8, u8) {
         self.id_header.version()
+    }
+
+    /// A lower-level interface, decoding the next multipacket on each call.
+    ///
+    /// Returns either an error, or the number of samples read per channel into `buf`.
+    pub fn read_samples<S, T>(&mut self, buf: &mut S) -> Result<usize>
+    where
+        S: Samples<T>,
+        T: Sample,
+    {
+        use crate::multipacket::Multipacket;
+
+        let ogg_packet = self.reader.read_packet()?;
+
+        if let Some(ogg_packet) = ogg_packet {
+            let mapping_table = self.id_header.channels().mapping_table();
+            let multipacket = Multipacket::new(&ogg_packet.data[..], mapping_table)?;
+            Ok(self.decoder.decode(Some(multipacket), buf)?)
+        } else {
+            Ok(0)
+        }
     }
 
     /// Returns the wrapped reader, consuming the `OggOpusReader`.
