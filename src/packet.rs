@@ -406,26 +406,6 @@ impl Display for MalformedPacketError {
 
 impl error::Error for MalformedPacketError {}
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub(crate) struct Frame<'a> {
-    config: Config,
-    stereo: bool,
-    data: &'a [u8],
-}
-
-impl<'a> Frame<'a> {
-    /// The maximum implicit length of a frame, in bytes, according to RFC 6716 § 3.4:R2
-    const IMPLICIT_LEN_MAX: usize = 1275;
-
-    fn new(config: Config, stereo: bool, data: &'a [u8]) -> Frame<'a> {
-        Frame {
-            config,
-            stereo,
-            data,
-        }
-    }
-}
-
 /// An Opus codec packet—that is, a group of [`Frame`]s with a shared configuration.
 ///
 /// [`Frame`]: struct.Frame.html
@@ -444,6 +424,9 @@ type DecodeFunction<'a> = fn(Config, bool, bool, &'a [u8]) -> Result<(Packet<'a>
 impl<'a> Packet<'a> {
     /// The maximum allowable duration of a packet in microseconds.
     const DURATION_MAX: u32 = 120_000;
+
+    /// The maximum implicit length of a frame, in bytes, according to RFC 6716 § 3.4:R2
+    const FRAME_LEN_MAX: usize = 1275;
 
     /// Returns the length code of the packet and the offset to add.
     fn length_code(data: &[u8]) -> Result<(usize, usize)> {
@@ -470,7 +453,7 @@ impl<'a> Packet<'a> {
             Ok((len, offset, data))
         } else {
             let len = implicit(data.len()).ok_or(MalformedPacketError::UnevenFrameLengths)?;
-            if len <= Frame::IMPLICIT_LEN_MAX {
+            if len <= Packet::FRAME_LEN_MAX {
                 Ok((len, 0, data))
             } else {
                 Err(MalformedPacketError::OverlongFrame.into())
@@ -716,12 +699,6 @@ impl<'a> Packet<'a> {
             &data[1..],
         )
     }
-
-    pub(crate) fn frames(&'a self) -> impl Iterator<Item = Frame<'a>> + ExactSizeIterator {
-        self.frames
-            .iter()
-            .map(move |slice| Frame::new(self.config, self.stereo, &slice[..]))
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -742,17 +719,35 @@ impl Decoder {
         }
     }
 
-    pub fn decode<'a, S, T>(&mut self, packet: Option<Packet<'a>>, _buf: &mut S) -> Result<usize>
+    fn decode_frame<'a, S, T>(
+        &mut self,
+        config: Config,
+        stereo: bool,
+        data: &[u8],
+        _buf: &mut S,
+    ) -> Result<usize>
+    where
+        S: Samples<T>,
+        T: Sample,
+    {
+        use crate::ec::RangeDecoder;
+
+        let ec_dec = RangeDecoder::new(data);
+
+        unimplemented!()
+    }
+
+    pub fn decode<'a, S, T>(&mut self, packet: Option<Packet<'a>>, buf: &mut S) -> Result<usize>
     where
         S: Samples<T>,
         T: Sample,
     {
         if let Some(packet) = packet {
-            match packet.config.mode {
-                Mode::Silk => unimplemented!(),
-                Mode::Hybrid => unimplemented!(),
-                Mode::Celt => unimplemented!(),
-            }
+            packet
+                .frames
+                .iter()
+                .map(|frame| self.decode_frame(packet.config, packet.stereo, frame, buf))
+                .sum()
         } else {
             // TODO packet loss concealment
             unimplemented!()
