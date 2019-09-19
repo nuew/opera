@@ -742,7 +742,7 @@ impl Decoder {
         }
     }
 
-    pub fn decode<'a, S, T>(&mut self, packet: Option<Packet<'a>>, _buf: &mut S) -> Result<()>
+    pub fn decode<'a, S, T>(&mut self, packet: Option<Packet<'a>>, _buf: &mut S) -> Result<usize>
     where
         S: Samples<T>,
         T: Sample,

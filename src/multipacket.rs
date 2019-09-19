@@ -57,7 +57,7 @@ pub struct Decoder {
 }
 
 impl Decoder {
-    fn new(sample_rate: u32, channels: u8) -> Decoder {
+    pub fn new(sample_rate: u32, channels: u8) -> Decoder {
         Decoder {
             decoder: PktDecoder::new(sample_rate, channels),
         }
@@ -67,7 +67,7 @@ impl Decoder {
         &mut self,
         multipacket: Option<Multipacket<'a>>,
         buf: &mut S,
-    ) -> Result<()>
+    ) -> Result<usize>
     where
         S: Samples<T>,
         T: Sample,
