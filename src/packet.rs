@@ -657,10 +657,11 @@ impl<'a> Packet<'a> {
         padding: usize,
     ) -> Result<(Packet<'a>, &'a [u8])> {
         let frame_count = frame_count as usize;
+        let len_nopadding = data.len() - padding;
         let (len, offset) = if self_delimiting {
             Packet::length_code(data)?
-        } else if data.len() % frame_count == 0 {
-            (data.len() / frame_count, 0)
+        } else if len_nopadding % frame_count == 0 {
+            (len_nopadding / frame_count, 0)
         } else {
             return Err(MalformedPacketError::UnevenFrameLengths.into());
         };
