@@ -27,5 +27,9 @@ rand = "0.7"
 default = ["ogg"]
 ogg_async = ["ogg/async"]
 
+[[example]]
+name = "ogginfo"
+required-features = ["ogg"]
+
 [workspace]
 members = ["opus-rfc8251-sys"]
