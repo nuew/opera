@@ -5,5 +5,5 @@ impl Sample for i16 {}
 
 pub trait Samples<T: Sample> {}
 
-impl<T> Samples<T> for [T] where T: Sample {}
+impl<'a, T> Samples<T> for &'a mut [T] where T: Sample {}
 impl<T> Samples<T> for Vec<T> where T: Sample {}
