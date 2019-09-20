@@ -29,3 +29,4 @@ pub mod packet;
 
 pub use self::error::Error;
 pub use self::sample::{Sample, Samples};
+pub use self::silk::SilkError;

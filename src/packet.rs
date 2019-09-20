@@ -747,9 +747,14 @@ impl Decoder {
     {
         use crate::ec::RangeDecoder;
 
-        let ec_dec = RangeDecoder::new(data);
+        let mut ec_dec = RangeDecoder::new(data);
 
-        unimplemented!()
+        eprintln!("{:?}, stereo = {}", config, stereo);
+        if config.mode != Mode::Celt {
+            self.silk.decode(&mut ec_dec, config, stereo)?
+        }
+
+        Ok(1)
     }
 
     pub fn decode<'a, S, T>(&mut self, packet: Option<Packet<'a>>, buf: &mut S) -> Result<usize>

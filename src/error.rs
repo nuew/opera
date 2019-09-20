@@ -1,4 +1,7 @@
-use crate::{channel::ChannelLayoutError, packet::MalformedPacketError, slice_ext::BoundsError};
+use crate::{
+    channel::ChannelLayoutError, packet::MalformedPacketError, silk::SilkError,
+    slice_ext::BoundsError,
+};
 use std::{
     error,
     fmt::{self, Display, Formatter},
@@ -21,6 +24,7 @@ pub enum Error {
     MalformedPacket(MalformedPacketError),
     /// The specified channel layout or mapping is malformed, unsupported, or otherwise invalid.
     ChannelLayout(ChannelLayoutError),
+    Silk(SilkError),
     #[cfg(feature = "ogg")]
     /// The Ogg container itself could not be read.
     Ogg(OggReadError),
@@ -35,6 +39,7 @@ impl Display for Error {
             Error::UnexpectedEof => f.write_str("unexpected end of stream"),
             Error::MalformedPacket(err) => err.fmt(f),
             Error::ChannelLayout(err) => err.fmt(f),
+            Error::Silk(err) => err.fmt(f),
             #[cfg(feature = "ogg")]
             Error::Ogg(err) => err.fmt(f),
             #[cfg(feature = "ogg")]
@@ -53,6 +58,7 @@ impl error::Error for Error {
             Error::UnexpectedEof => None,
             Error::MalformedPacket(err) => Some(err),
             Error::ChannelLayout(err) => Some(err),
+            Error::Silk(err) => Some(err),
             #[cfg(feature = "ogg")]
             Error::Ogg(err) => Some(err),
             #[cfg(feature = "ogg")]
@@ -76,6 +82,12 @@ impl From<MalformedPacketError> for Error {
 impl From<ChannelLayoutError> for Error {
     fn from(from: ChannelLayoutError) -> Error {
         Error::ChannelLayout(from)
+    }
+}
+
+impl From<SilkError> for Error {
+    fn from(from: SilkError) -> Error {
+        Error::Silk(from)
     }
 }
 

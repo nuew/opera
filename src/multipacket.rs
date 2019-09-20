@@ -80,7 +80,7 @@ impl Decoder {
             }
 
             // TODO merge idecs
-            unimplemented!()
+            Ok(1)
         } else {
             // TODO packet loss concealment
             unimplemented!()
