@@ -38,10 +38,13 @@ impl<'a> RangeDecoder<'a> {
         // Unfortunately there's no way to (without unsafe code) guarantee optimization based on
         // our knowledge that `dividend` can't be 0. Hopefully the optimizer notices :)
         //
-        // Overflow should hopefully be impossible, but we'll try to provide a sane default
-        // (that should be ignored due to the `min`) if it happens regardless.
-        let vdd = u16::try_from(self.value / dividend).unwrap_or(u16::max_value());
-        ft - u16::min(ft, vdd.saturating_add(1)) // fs
+        // Overflow should hopefully be impossible, but if it somehow happens regardless, return
+        // 0 instead, as that *SHOULD* be the only possible result, as `∀ft.(vdd > u16::MAX →
+        // ft < vdd), and `ft - ft = 0`.
+        match u16::try_from(self.value / dividend) {
+            Ok(vdd) => ft - u16::min(ft, vdd.saturating_add(1)), // fs
+            Err(_) => 0,
+        }
     }
 
     /// Compute `fs`, a value lying within the range of some symbol in the current context.
