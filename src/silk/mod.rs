@@ -1,11 +1,16 @@
 use crate::{
     ec::RangeDecoder,
-    packet::{Config, FrameSize},
+    packet::{Bandwidth, Config, FrameSize},
 };
 use std::{
     error::Error,
     fmt::{self, Display, Formatter},
+    iter::FusedIterator,
 };
+
+mod frame;
+
+use self::frame::{SilkFrame, StereoPredWeights};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub enum SilkError {
@@ -14,13 +19,17 @@ pub enum SilkError {
 
 impl Display for SilkError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            SilkError::InvalidFrameSize => "invalid frame size",
-        })
+        f.write_str(self.description())
     }
 }
 
-impl Error for SilkError {}
+impl Error for SilkError {
+    fn description(&self) -> &str {
+        match self {
+            SilkError::InvalidFrameSize => "invalid frame size",
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 struct LpChannelHeader {
@@ -29,9 +38,7 @@ struct LpChannelHeader {
 }
 
 impl LpChannelHeader {
-    fn new(data: &mut RangeDecoder<'_>, frames: u8) -> LpChannelHeader {
-        // TODO potential optimization: use bits directly and advance the range decoder
-
+    fn from_stream(data: &mut RangeDecoder<'_>, frames: u8) -> LpChannelHeader {
         LpChannelHeader {
             vad: (0..frames).fold(0, |vad, i| {
                 let frame_vad = data.decode_bit_logp(1).unwrap();
@@ -54,7 +61,7 @@ impl LpChannelHeader {
 struct LbrrFrameHeader(u8);
 
 impl LbrrFrameHeader {
-    fn new(
+    fn from_stream(
         data: &mut RangeDecoder<'_>,
         channel_header: Option<LpChannelHeader>,
         frame_size: FrameSize,
@@ -82,101 +89,46 @@ struct LpHeader {
 }
 
 impl LpHeader {
-    fn new(
+    fn from_stream(
         data: &mut RangeDecoder<'_>,
         frame_size: FrameSize,
         frames: u8,
         stereo: bool,
     ) -> LpHeader {
-        let mid = LpChannelHeader::new(data, frames);
+        let mid = LpChannelHeader::from_stream(data, frames);
         let side = if stereo {
-            Some(LpChannelHeader::new(data, frames))
+            Some(LpChannelHeader::from_stream(data, frames))
         } else {
             None
         };
 
         LpHeader {
             mid,
-            mid_lbrr: LbrrFrameHeader::new(data, Some(mid), frame_size),
+            mid_lbrr: LbrrFrameHeader::from_stream(data, Some(mid), frame_size),
             side,
-            side_lbrr: LbrrFrameHeader::new(data, side, frame_size),
+            side_lbrr: LbrrFrameHeader::from_stream(data, side, frame_size),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-enum SignalType {
-    Inactive,
-    Unvoiced,
-    Voiced,
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct SilkPacket<'a, 'b> {
+    bandwidth: Bandwidth,
+    data: &'a mut RangeDecoder<'b>,
+    lp_header: LpHeader,
+    stereo: bool,
+
+    frames: u8,
+    cur_frame: u8,
+    subframes: u8,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-enum QuantizationOffsetType {
-    Low,
-    High,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-struct SilkFrameHeader {
-    signal_type: SignalType,
-    quantization_offset_type: QuantizationOffsetType,
-}
-
-impl SilkFrameHeader {
-    fn stereo_pred_weights(data: &mut RangeDecoder<'_>) {
-        const ICDF_STEREO_PRED_WEIGHTS_STAGE_1: &[u8] = &[
-            249, 247, 246, 245, 244, 234, 210, 202, 201, 200, 197, 174, 82, 59, 56, 55, 54, 46, 22,
-            12, 11, 10, 9, 7, 0,
-        ];
-        const ICDF_STEREO_PRED_WEIGHTS_STAGE_2: &[u8] = &[171, 85, 0];
-        const ICDF_STEREO_PRED_WEIGHTS_STAGE_3: &[u8] = &[205, 154, 102, 51, 0];
-    }
-
-    fn frame_type(data: &mut RangeDecoder<'_>, vad: bool) -> (SignalType, QuantizationOffsetType) {
-        const ICDF_FRAME_TYPE_NO_VAD: &[u8] = &[230, 0];
-        const ICDF_FRAME_TYPE_VAD: &[u8] = &[232, 158, 10, 0];
-
-        if vad {
-            match data.decode_icdf(ICDF_FRAME_TYPE_VAD, 6).unwrap() {
-                0 => (SignalType::Unvoiced, QuantizationOffsetType::Low),
-                1 => (SignalType::Unvoiced, QuantizationOffsetType::High),
-                2 => (SignalType::Voiced, QuantizationOffsetType::Low),
-                3 => (SignalType::Voiced, QuantizationOffsetType::High),
-                _ => unreachable!(),
-            }
-        } else {
-            (
-                SignalType::Inactive,
-                if data.decode_icdf(ICDF_FRAME_TYPE_NO_VAD, 6).unwrap() == 0 {
-                    QuantizationOffsetType::Low
-                } else {
-                    QuantizationOffsetType::High
-                },
-            )
-        }
-    }
-
-    fn new(data: &mut RangeDecoder<'_>, vad: bool) -> SilkFrameHeader {
-        let (signal_type, quantization_offset_type) = SilkFrameHeader::frame_type(data, vad);
-
-        SilkFrameHeader {
-            signal_type,
-            quantization_offset_type,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct SilkDecoder;
-
-impl SilkDecoder {
-    pub(crate) fn decode(
-        &mut self,
-        data: &mut RangeDecoder<'_>,
+impl<'a, 'b> SilkPacket<'a, 'b> {
+    fn from_stream(
+        data: &'a mut RangeDecoder<'b>,
         config: Config,
         stereo: bool,
-    ) -> Result<(), SilkError> {
+    ) -> Result<SilkPacket<'a, 'b>, SilkError> {
         let (frames, subframes) = match config.frame_size() {
             FrameSize::Ten => (1, 2),
             FrameSize::Twenty => (1, 4),
@@ -184,12 +136,63 @@ impl SilkDecoder {
             FrameSize::Sixty => (3, 4),
             _ => return Err(SilkError::InvalidFrameSize),
         };
-        let lp_header = LpHeader::new(data, config.frame_size(), frames, stereo);
+        Ok(SilkPacket {
+            bandwidth: match config.bandwidth() {
+                Bandwidth::SuperWideband | Bandwidth::Fullband => Bandwidth::Wideband,
+                other => other,
+            },
+            lp_header: LpHeader::from_stream(data, config.frame_size(), frames, stereo),
+            data,
+            stereo,
+            frames,
+            cur_frame: 0,
+            subframes,
+        })
+    }
+}
 
-        eprintln!("({}, {}); {:?}", frames, subframes, lp_header);
+impl<'a, 'b> Iterator for SilkPacket<'a, 'b> {
+    type Item = SilkFrame;
 
-        // decode regular silk frames
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cur_frame < self.frames {
+            // FIXME temporarily assume that we're in the middle channel
+            let vad = self.lp_header.mid.vad(self.cur_frame);
+            Some(SilkFrame::from_stream(self.data, self.stereo, vad))
+        } else {
+            None
+        }
+    }
 
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        unimplemented!()
+    }
+}
+
+impl ExactSizeIterator for SilkPacket<'_, '_> {}
+impl FusedIterator for SilkPacket<'_, '_> {}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SilkDecoder {
+    stereo: bool,
+    stereo_pred_weights: StereoPredWeights,
+}
+
+impl SilkDecoder {
+    pub(crate) fn new(stereo: bool) -> SilkDecoder {
+        SilkDecoder {
+            stereo,
+            stereo_pred_weights: StereoPredWeights::default(),
+        }
+    }
+
+    pub(crate) fn decode(
+        &mut self,
+        data: &mut RangeDecoder<'_>,
+        config: Config,
+        stereo: bool,
+    ) -> Result<(), SilkError> {
+        let silk_packet = SilkPacket::from_stream(data, config, stereo);
         Ok(())
     }
 }

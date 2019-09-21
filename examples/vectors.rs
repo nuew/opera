@@ -3,28 +3,18 @@
 use opi::Error;
 use std::{error, io::prelude::*};
 
-fn report_error(err: Error, buffer: &[u8]) -> Box<dyn error::Error> {
-    eprintln!("PARSE ERROR: {:?} [", err);
-    for byte in buffer.into_iter() {
-        eprintln!("\t{:3.} ({:#010b}, {:#04x})),", byte, byte, byte);
-    }
-    eprintln!("]");
-
-    err.into()
-}
-
 fn dump<R: Read>(mut reader: R) -> Result<(), Box<dyn error::Error>> {
     use opi::packet::{Decoder, Packet};
     use std::{convert::TryInto, io::ErrorKind};
 
     const MAX_PACKET: usize = 1500;
-    const CHANNELS: u8 = 2;
+    const STEREO: bool = true;
     const MAX_FRAME_SIZE: usize = 960 * 6;
 
     let mut frame = [0; 8];
     let mut packet_buf = [0; MAX_PACKET];
-    let mut out_buf = [0i16; MAX_FRAME_SIZE * CHANNELS as usize];
-    let mut decoder = Decoder::new(48000, CHANNELS);
+    let mut out_buf = [0i16; MAX_FRAME_SIZE as usize * STEREO as usize];
+    let mut decoder = Decoder::new(48000, STEREO);
 
     loop {
         // get packet framing

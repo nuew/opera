@@ -2,7 +2,6 @@
 
 use crate::{
     celt::CeltDecoder,
-    channel::MappingTable,
     error::{Error, Result},
     sample::{Sample, Samples},
     silk::SilkDecoder,
@@ -719,17 +718,17 @@ impl<'a> Packet<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct Decoder {
     sample_rate: u32,
-    channels: u8,
+    stereo: bool,
     silk: SilkDecoder,
     celt: CeltDecoder,
 }
 
 impl Decoder {
-    pub fn new(sample_rate: u32, channels: u8) -> Decoder {
+    pub fn new(sample_rate: u32, stereo: bool) -> Decoder {
         Decoder {
             sample_rate,
-            channels,
-            silk: SilkDecoder,
+            stereo,
+            silk: SilkDecoder::new(stereo),
             celt: CeltDecoder,
         }
     }

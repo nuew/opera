@@ -59,7 +59,7 @@ pub struct Decoder {
 impl Decoder {
     pub fn new(sample_rate: u32, channels: u8) -> Decoder {
         Decoder {
-            decoder: PktDecoder::new(sample_rate, channels),
+            decoder: PktDecoder::new(sample_rate, channels != 1),
         }
     }
 
