@@ -158,6 +158,8 @@ impl<'a, 'b> Iterator for SilkPacket<'a, 'b> {
         if self.cur_frame < self.frames {
             // FIXME temporarily assume that we're in the middle channel
             let vad = self.lp_header.mid.vad(self.cur_frame);
+
+            self.cur_frame += 1;
             Some(SilkFrame::from_stream(self.data, self.stereo, vad))
         } else {
             None
@@ -192,7 +194,10 @@ impl SilkDecoder {
         config: Config,
         stereo: bool,
     ) -> Result<(), SilkError> {
-        let silk_packet = SilkPacket::from_stream(data, config, stereo);
+        let mut silk_packet = SilkPacket::from_stream(data, config, stereo)?;
+        let frame0 = silk_packet.next().unwrap();
+
+        println!("{:?}\n{:?}", silk_packet, frame0);
         Ok(())
     }
 }

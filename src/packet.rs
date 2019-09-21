@@ -748,7 +748,7 @@ impl Decoder {
 
         let mut ec_dec = RangeDecoder::new(data);
 
-        eprintln!("{:?}, stereo = {}", config, stereo);
+        println!("{:?}, stereo = {}", config, stereo);
         if config.mode != Mode::Celt {
             self.silk.decode(&mut ec_dec, config, stereo)?
         }
