@@ -35,12 +35,10 @@ impl StereoPredWeights {
             (i0, i1, i2, i3)
         };
 
-        // FIXME this is somehow wrong, not sure in what way
         let wn_q13 = |win, i_n| {
-            let c = 2 * i_n + 1;
-            let b: i16 = STEREO_PRED_WEIGHTS_Q13[win + 1] - STEREO_PRED_WEIGHTS_Q13[win];
-            let b = b.wrapping_mul(6554).overflowing_shr(16).0;
-            STEREO_PRED_WEIGHTS_Q13[win] + (b * c)
+            let low = STEREO_PRED_WEIGHTS_Q13[win];
+            let step = i32::from(STEREO_PRED_WEIGHTS_Q13[win + 1] - low);
+            low + ((step * 6554) >> 16) as i16 * (2 * i_n + 1)
         };
         let w1_q13 = wn_q13(i.2 + 3 * (n % 5), i.3 as i16);
         StereoPredWeights {
