@@ -31,6 +31,22 @@ impl Error for SilkError {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+pub(crate) enum Channel {
+    Mid,
+    Side,
+}
+
+impl Channel {
+    fn new(_lp_header: LpHeader, channel_num: u8) -> Channel {
+        if channel_num & 1 != 0 {
+            Channel::Side
+        } else {
+            Channel::Mid
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 struct LpChannelHeader {
     vad: u8,
@@ -109,6 +125,20 @@ impl LpHeader {
             side_lbrr: LbrrFrameHeader::from_stream(data, side, frame_size),
         }
     }
+
+    fn channel(&self, channel: Channel) -> Option<LpChannelHeader> {
+        match channel {
+            Channel::Mid => Some(self.mid),
+            Channel::Side => self.side,
+        }
+    }
+
+    fn lbrr(&self, channel: Channel) -> Option<LbrrFrameHeader> {
+        match channel {
+            Channel::Mid => self.mid_lbrr,
+            Channel::Side => self.side_lbrr,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -155,12 +185,23 @@ impl<'a, 'b> Iterator for SilkPacket<'a, 'b> {
     type Item = SilkFrame;
 
     fn next(&mut self) -> Option<Self::Item> {
+        use self::frame::SilkFrameEnvironment;
+
         if self.cur_frame < self.frames {
-            // FIXME temporarily assume that we're in the middle channel
-            let vad = self.lp_header.mid.vad(self.cur_frame);
+            let channel = Channel::new(self.lp_header, self.cur_frame);
+            // FIXME temporarily assume that LBRR frames don't exist
+            let lbrr = false;
+
+            let frame = SilkFrameEnvironment {
+                channel,
+                lbrr,
+                stereo: self.stereo,
+                vad: self.lp_header.channel(channel).unwrap().vad(self.cur_frame),
+            }
+            .frame_from_stream(self.data);
 
             self.cur_frame += 1;
-            Some(SilkFrame::from_stream(self.data, self.stereo, vad))
+            Some(frame)
         } else {
             None
         }

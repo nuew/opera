@@ -1,4 +1,4 @@
-use crate::ec::RangeDecoder;
+use crate::{ec::RangeDecoder, silk::Channel};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Default)]
 pub(crate) struct StereoPredWeights {
@@ -100,9 +100,8 @@ impl SilkFrameHeader {
         }
     }
 
-    fn from_stream(data: &mut RangeDecoder<'_>, stereo: bool, vad: bool) -> SilkFrameHeader {
-        // TODO and this is the middle channel
-        let (stereo_pred_weights, mid_only) = if stereo {
+    fn from_stream(data: &mut RangeDecoder<'_>, env: SilkFrameEnvironment) -> SilkFrameHeader {
+        let (stereo_pred_weights, mid_only) = if env.stereo && env.channel == Channel::Mid {
             (
                 Some(StereoPredWeights::from_stream(data)),
                 Some(SilkFrameHeader::mid_only(data)),
@@ -110,7 +109,7 @@ impl SilkFrameHeader {
         } else {
             (None, None)
         };
-        let (signal_type, quantization_offset_type) = SilkFrameHeader::frame_type(data, vad);
+        let (signal_type, quantization_offset_type) = SilkFrameHeader::frame_type(data, env.vad);
 
         SilkFrameHeader {
             stereo_pred_weights,
@@ -122,14 +121,22 @@ impl SilkFrameHeader {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub(crate) struct SilkFrame {
-    header: SilkFrameHeader,
+pub(crate) struct SilkFrameEnvironment {
+    pub(crate) channel: Channel,
+    pub(crate) lbrr: bool,
+    pub(crate) stereo: bool,
+    pub(crate) vad: bool,
 }
 
-impl SilkFrame {
-    pub(crate) fn from_stream(data: &mut RangeDecoder<'_>, stereo: bool, vad: bool) -> SilkFrame {
+impl SilkFrameEnvironment {
+    pub(crate) fn frame_from_stream(self, data: &mut RangeDecoder<'_>) -> SilkFrame {
         SilkFrame {
-            header: SilkFrameHeader::from_stream(data, stereo, vad),
+            header: SilkFrameHeader::from_stream(data, self),
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub(crate) struct SilkFrame {
+    header: SilkFrameHeader,
 }
