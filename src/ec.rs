@@ -1,5 +1,13 @@
 //! An entropy decoder based on range coding.
 
+// This is the part of this implementation most directly based on the reference implementation, and
+// is more or less a direct port. I couldn't easily access the papers this was based on, and I
+// (even now) don't really quite understand how this works. Regardless, it behaves identically to
+// that of the reference implementation, so at least it works.
+//
+// Still, I'd appriciate it if somebody who better understood the theory behind this rewrote this
+// with a more ideomatic API.
+
 /// An entropy decoder based on range coding.
 ///
 /// This is implemented as described in [RFC6716 § 4.1].
