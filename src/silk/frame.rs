@@ -1,7 +1,23 @@
-use crate::{ec::RangeDecoder, silk::Channel};
+use crate::{
+    ec::RangeDecoder,
+    silk::{Channel, LpHeader},
+};
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+enum SignalType {
+    Inactive,
+    Unvoiced,
+    Voiced,
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+enum QuantizationOffsetType {
+    Low,
+    High,
+}
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Default)]
-pub(crate) struct StereoPredWeights {
+pub(super) struct StereoPredWeights {
     w0_q13: i16,
     w1_q13: i16,
 }
@@ -48,95 +64,111 @@ impl StereoPredWeights {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-enum SignalType {
-    Inactive,
-    Unvoiced,
-    Voiced,
-}
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub(super) struct SubframeGains;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-enum QuantizationOffsetType {
-    Low,
-    High,
+impl SubframeGains {
+    fn from_stream(data: &mut RangeDecoder<'_>, signal_type: SignalType) -> SubframeGains {
+        const ICDF_SUBFR_INDEPENDENT_INACTIVE: &[u8] = &[224, 112, 44, 15, 3, 2, 1, 0];
+        const ICDF_SUBFR_INDEPENDENT_UNVOICED: &[u8] = &[254, 237, 192, 132, 70, 23, 4, 0];
+        const ICDF_SUBFR_INDEPENDENT_VOICED: &[u8] = &[255, 252, 226, 155, 61, 11, 2, 0];
+        const ICDF_SUBFR_INDEPENDENT_COMMON: &[u8] = &[224, 192, 160, 128, 96, 64, 32, 0];
+
+        unimplemented!()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-struct SilkFrameHeader {
+pub(super) struct SilkFrame {
     stereo_pred_weights: Option<StereoPredWeights>,
     mid_only: Option<bool>,
     signal_type: SignalType,
     quantization_offset_type: QuantizationOffsetType,
 }
 
-impl SilkFrameHeader {
-    fn mid_only(data: &mut RangeDecoder<'_>) -> bool {
-        const ICDF_MID_ONLY: &[u8] = &[64, 0];
+impl SilkFrame {
+    pub(super) fn from_stream(
+        data: &mut RangeDecoder<'_>,
+        env: SilkFrameEnvironment<'_>,
+    ) -> SilkFrame {
+        let stereo_mid = |data: &mut RangeDecoder<'_>| {
+            const ICDF_MID_ONLY: &[u8] = &[64, 0];
 
-        data.decode_icdf(ICDF_MID_ONLY, 8).unwrap() != 0
-    }
+            if env.stereo && env.channel == Channel::Mid {
+                let stereo_pred_weights = StereoPredWeights::from_stream(data);
 
-    fn frame_type(data: &mut RangeDecoder<'_>, vad: bool) -> (SignalType, QuantizationOffsetType) {
-        const ICDF_FRAME_TYPE_NO_VAD: &[u8] = &[230, 0];
-        const ICDF_FRAME_TYPE_VAD: &[u8] = &[232, 158, 10, 0];
-
-        if vad {
-            match data.decode_icdf(ICDF_FRAME_TYPE_VAD, 6).unwrap() {
-                0 => (SignalType::Unvoiced, QuantizationOffsetType::Low),
-                1 => (SignalType::Unvoiced, QuantizationOffsetType::High),
-                2 => (SignalType::Voiced, QuantizationOffsetType::Low),
-                3 => (SignalType::Voiced, QuantizationOffsetType::High),
-                _ => unreachable!(),
-            }
-        } else {
-            (
-                SignalType::Inactive,
-                if data.decode_icdf(ICDF_FRAME_TYPE_NO_VAD, 6).unwrap() == 0 {
-                    QuantizationOffsetType::Low
+                // decode mid-only flag
+                let active_coded = if !env.lbrr {
+                    env.lp_header
+                        .channel(Channel::Side)
+                        .unwrap()
+                        .vad(env.frame_no)
                 } else {
-                    QuantizationOffsetType::High
-                },
-            )
-        }
-    }
+                    env.lp_header
+                        .lbrr(Channel::Side)
+                        .map(|lbrr_flags| lbrr_flags.lbrr(env.frame_no))
+                        .unwrap_or(true)
+                };
+                let mid_only = if !active_coded {
+                    Some(data.decode_icdf(ICDF_MID_ONLY, 8).unwrap() != 0)
+                } else {
+                    None
+                };
 
-    fn from_stream(data: &mut RangeDecoder<'_>, env: SilkFrameEnvironment) -> SilkFrameHeader {
-        let (stereo_pred_weights, mid_only) = if env.stereo && env.channel == Channel::Mid {
-            (
-                Some(StereoPredWeights::from_stream(data)),
-                Some(SilkFrameHeader::mid_only(data)),
-            )
-        } else {
-            (None, None)
+                (Some(stereo_pred_weights), mid_only)
+            } else {
+                Default::default()
+            }
         };
-        let (signal_type, quantization_offset_type) = SilkFrameHeader::frame_type(data, env.vad);
 
-        SilkFrameHeader {
+        let frame_type = |data: &mut RangeDecoder<'_>, vad| {
+            const ICDF_FRAME_TYPE_NO_VAD: &[u8] = &[230, 0];
+            const ICDF_FRAME_TYPE_VAD: &[u8] = &[232, 158, 10, 0];
+
+            if vad {
+                match data.decode_icdf(ICDF_FRAME_TYPE_VAD, 6).unwrap() {
+                    0 => (SignalType::Unvoiced, QuantizationOffsetType::Low),
+                    1 => (SignalType::Unvoiced, QuantizationOffsetType::High),
+                    2 => (SignalType::Voiced, QuantizationOffsetType::Low),
+                    3 => (SignalType::Voiced, QuantizationOffsetType::High),
+                    _ => unreachable!(),
+                }
+            } else {
+                (
+                    SignalType::Inactive,
+                    if data.decode_icdf(ICDF_FRAME_TYPE_NO_VAD, 6).unwrap() == 0 {
+                        QuantizationOffsetType::Low
+                    } else {
+                        QuantizationOffsetType::High
+                    },
+                )
+            }
+        };
+
+        let channel = env.lp_header.channel(env.channel).unwrap();
+        let vad = channel.vad(env.frame_no);
+
+        let (stereo_pred_weights, mid_only) = stereo_mid(data);
+        let (signal_type, quantization_offset_type) = frame_type(data, vad);
+
+        SilkFrame {
             stereo_pred_weights,
             mid_only,
             signal_type,
             quantization_offset_type,
         }
     }
-}
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub(crate) struct SilkFrameEnvironment {
-    pub(crate) channel: Channel,
-    pub(crate) lbrr: bool,
-    pub(crate) stereo: bool,
-    pub(crate) vad: bool,
-}
-
-impl SilkFrameEnvironment {
-    pub(crate) fn frame_from_stream(self, data: &mut RangeDecoder<'_>) -> SilkFrame {
-        SilkFrame {
-            header: SilkFrameHeader::from_stream(data, self),
-        }
+    pub(super) fn mid_only(&self) -> bool {
+        self.mid_only.unwrap_or_default()
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub(crate) struct SilkFrame {
-    header: SilkFrameHeader,
+pub(super) struct SilkFrameEnvironment<'a> {
+    pub(super) channel: Channel,
+    pub(super) frame_no: u8,
+    pub(super) lbrr: bool,
+    pub(super) lp_header: &'a LpHeader,
+    pub(super) stereo: bool,
 }

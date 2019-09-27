@@ -94,6 +94,10 @@ impl LbrrFrameHeader {
             })
             .map(|lbrr_sym| LbrrFrameHeader(lbrr_sym as u8 + 1))
     }
+
+    fn lbrr(self, frame: u8) -> bool {
+        self.0 & (1 << frame) != 0
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -151,6 +155,8 @@ struct SilkPacket<'a, 'b> {
     frames: u8,
     cur_frame: u8,
     subframes: u8,
+
+    prev_mid_only: bool,
 }
 
 impl<'a, 'b> SilkPacket<'a, 'b> {
@@ -174,9 +180,11 @@ impl<'a, 'b> SilkPacket<'a, 'b> {
             lp_header: LpHeader::from_stream(data, config.frame_size(), frames, stereo),
             data,
             stereo,
+
             frames,
             cur_frame: 0,
             subframes,
+            prev_mid_only: false,
         })
     }
 }
@@ -192,15 +200,21 @@ impl<'a, 'b> Iterator for SilkPacket<'a, 'b> {
             // FIXME temporarily assume that LBRR frames don't exist
             let lbrr = false;
 
-            let frame = SilkFrameEnvironment {
-                channel,
-                lbrr,
-                stereo: self.stereo,
-                vad: self.lp_header.channel(channel).unwrap().vad(self.cur_frame),
-            }
-            .frame_from_stream(self.data);
+            let frame = SilkFrame::from_stream(
+                self.data,
+                SilkFrameEnvironment {
+                    channel,
+                    frame_no: self.cur_frame,
+                    lbrr,
+                    lp_header: &self.lp_header,
+                    stereo: self.stereo,
+                },
+            );
 
             self.cur_frame += 1;
+            if channel == Channel::Mid {
+                self.prev_mid_only = frame.mid_only()
+            }
             Some(frame)
         } else {
             None
