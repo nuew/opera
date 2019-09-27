@@ -527,7 +527,6 @@ mod tests {
             let ref_res = ref_dec.decode_icdf(icdf, ftb);
             let opi_res = opi_dec.decode_icdf(icdf, ftb);
 
-            println!("{:?}; {}\n{:?}\n{:?}\n", icdf, ftb, ref_dec, opi_dec);
             assert_eq!(ref_res, opi_res.unwrap()); // test decodes
         }
     }
