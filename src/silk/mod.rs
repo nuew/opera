@@ -87,10 +87,13 @@ impl LbrrFrameHeader {
 
         channel_header
             .filter(|channel_header| channel_header.lbrr())
-            .and_then(|_| match frame_size {
-                FrameSize::Fourty => data.decode_icdf(ICDF_LBRR_FLAGS_2BIT, 8),
-                FrameSize::Sixty => data.decode_icdf(ICDF_LBRR_FLAGS_3BIT, 8),
-                _ => None,
+            .and_then(|_| {
+                let lbrr_flags_icdf = match frame_size {
+                    FrameSize::Fourty => ICDF_LBRR_FLAGS_2BIT,
+                    FrameSize::Sixty => ICDF_LBRR_FLAGS_3BIT,
+                    _ => return None,
+                };
+                data.decode_icdf(lbrr_flags_icdf, 8)
             })
             .map(|lbrr_sym| LbrrFrameHeader(lbrr_sym as u8 + 1))
     }
@@ -151,12 +154,7 @@ struct SilkPacket<'a, 'b> {
     data: &'a mut RangeDecoder<'b>,
     lp_header: LpHeader,
     stereo: bool,
-
-    frames: u8,
-    cur_frame: u8,
     subframes: u8,
-
-    prev_mid_only: bool,
 }
 
 impl<'a, 'b> SilkPacket<'a, 'b> {
@@ -180,34 +178,52 @@ impl<'a, 'b> SilkPacket<'a, 'b> {
             lp_header: LpHeader::from_stream(data, config.frame_size(), frames, stereo),
             data,
             stereo,
-
-            frames,
-            cur_frame: 0,
             subframes,
-            prev_mid_only: false,
         })
     }
 }
 
-impl<'a, 'b> Iterator for SilkPacket<'a, 'b> {
+impl<'a, 'b> IntoIterator for SilkPacket<'a, 'b> {
+    type Item = SilkFrame;
+    type IntoIter = SilkFrames<'a, 'b>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        SilkFrames {
+            packet: self,
+            frames: 0,
+            cur_frame: 0,
+            prev_mid_only: None,
+        }
+    }
+}
+
+struct SilkFrames<'a, 'b> {
+    packet: SilkPacket<'a, 'b>,
+    frames: u8,
+    cur_frame: u8,
+    prev_mid_only: Option<bool>,
+}
+
+impl<'a, 'b> Iterator for SilkFrames<'a, 'b> {
     type Item = SilkFrame;
 
     fn next(&mut self) -> Option<Self::Item> {
         use self::frame::SilkFrameEnvironment;
 
         if self.cur_frame < self.frames {
-            let channel = Channel::new(self.lp_header, self.cur_frame);
+            // FIXME actually determine the correct channel
+            let channel = Channel::new(self.packet.lp_header, self.cur_frame);
             // FIXME temporarily assume that LBRR frames don't exist
             let lbrr = false;
 
             let frame = SilkFrame::from_stream(
-                self.data,
+                self.packet.data,
                 SilkFrameEnvironment {
                     channel,
                     frame_no: self.cur_frame,
                     lbrr,
-                    lp_header: &self.lp_header,
-                    stereo: self.stereo,
+                    lp_header: &self.packet.lp_header,
+                    stereo: self.packet.stereo,
                 },
             );
 
@@ -222,12 +238,13 @@ impl<'a, 'b> Iterator for SilkPacket<'a, 'b> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        unimplemented!()
+        let remaining = usize::from(self.frames - self.cur_frame);
+        (remaining, Some(remaining))
     }
 }
 
-impl ExactSizeIterator for SilkPacket<'_, '_> {}
-impl FusedIterator for SilkPacket<'_, '_> {}
+impl ExactSizeIterator for SilkFrames<'_, '_> {}
+impl FusedIterator for SilkFrames<'_, '_> {}
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SilkDecoder {
@@ -249,10 +266,13 @@ impl SilkDecoder {
         config: Config,
         stereo: bool,
     ) -> Result<(), SilkError> {
-        let mut silk_packet = SilkPacket::from_stream(data, config, stereo)?;
-        let frame0 = silk_packet.next().unwrap();
+        let silk_packet = SilkPacket::from_stream(data, config, stereo)?;
+        println!("{:?}", silk_packet);
 
-        println!("{:?}\n{:?}", silk_packet, frame0);
+        let mut silk_frames = silk_packet.into_iter();
+        let frame0 = silk_frames.next().unwrap();
+        println!("{:?}", frame0);
+
         Ok(())
     }
 }

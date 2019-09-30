@@ -159,8 +159,8 @@ impl SilkFrame {
         }
     }
 
-    pub(super) fn mid_only(&self) -> bool {
-        self.mid_only.unwrap_or_default()
+    pub(super) fn mid_only(&self) -> Option<bool> {
+        self.mid_only
     }
 }
 
