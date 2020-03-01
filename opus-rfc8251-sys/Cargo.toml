@@ -1,0 +1,25 @@
+[package]
+name = "opus-rfc8251-sys"
+version = "1.0.0"
+authors = ["nuew <code@nuew.net>"]
+edition = "2018"
+description = "Bindings to the reference implementation of libopus as specified by RFC 6716 and RFC 8251"
+homepage = "https://www.rfc-editor.org/info/rfc8251"
+repository = "https://github.com/nuew/opi"
+license = "BSD-3-Clause"
+
+[lib]
+path = "lib.rs"
+
+[features]
+default = ["cc/parallel", "have_lrintf", "var_arrays"]
+disable_float_api = []
+fixed_point = []
+have_lrint = []
+have_lrintf = []
+use_alloca = []
+var_arrays = []
+
+[build-dependencies]
+bindgen = { version = "0.53", default-features = false }
+cc = "1"
